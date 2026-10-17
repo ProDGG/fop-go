@@ -19,7 +19,7 @@ import (
 // Info is the document information dictionary.
 type Info struct {
 	Title, Author, Subject, Keywords, Creator, Producer string
-	Created                                            time.Time
+	Created                                             time.Time
 }
 
 // Document accumulates pages and resources and writes the PDF file.
