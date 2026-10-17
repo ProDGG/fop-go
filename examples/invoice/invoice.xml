@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<invoice number="2024-0042" date="2024-03-15">
+  <seller>
+    <name>ООО «Ромашка»</name>
+    <address>г. Москва, ул. Тверская, д. 1, офис 25</address>
+    <inn>7701234567</inn>
+  </seller>
+  <buyer>
+    <name>АО «Технопарк»</name>
+    <address>г. Санкт-Петербург, Невский пр., д. 100</address>
+    <inn>7807654321</inn>
+  </buyer>
+  <items>
+    <item><title>Разработка модуля формирования отчётов</title><qty>1</qty><unit>усл.</unit><price>120000.00</price></item>
+    <item><title>Техническая поддержка (месяц)</title><qty>3</qty><unit>мес.</unit><price>15000.00</price></item>
+    <item><title>Лицензия на использование программного обеспечения, включая обновления в течение двенадцати месяцев с момента подписания договора</title><qty>5</qty><unit>шт.</unit><price>8500.50</price></item>
+    <item><title>Обучение персонала</title><qty>2</qty><unit>дн.</unit><price>22000.00</price></item>
+  </items>
+  <vat rate="20"/>
+  <note>Оплата производится в течение 5 банковских дней с даты выставления счёта. Счёт действителен к оплате в течение 5 рабочих дней.</note>
+</invoice>

@@ -25,6 +25,7 @@ type cellInfo struct {
 
 type rowInfo struct {
 	node    *Node
+	secNode *Node
 	section int // 0 header, 1 body, 2 footer
 	cells   []*cellInfo
 	h       float64
@@ -267,7 +268,7 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 		var occ []int
 		var cur *rowInfo
 		startRow := func(rn *Node) {
-			cur = &rowInfo{node: rn, section: section}
+			cur = &rowInfo{node: rn, secNode: sec, section: section}
 			if rn != nil {
 				for i, s := range []string{"top", "right", "bottom", "left"} {
 					cur.b[i] = lc.borderOf(rn, s, tw)
@@ -523,6 +524,18 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 		for _, c := range r.cells {
 			cb := newBlock()
 			lc.boxProps(c.node, cb, c.w)
+			if cb.bg.A == 0 {
+				// cells without their own background show the row, section or column background
+				for _, src := range []*Node{r.node, r.secNode, cols[c.col].node} {
+					if src == nil {
+						continue
+					}
+					if col, ok := ParseColor(src.Props["background-color"]); ok && col.A > 0 {
+						cb.bg = col
+						break
+					}
+				}
+			}
 			cb.spBefore, cb.spAfter = 0, 0
 			cb.kNext, cb.kPrev, cb.bBefore, cb.bAfter = false, false, brkNone, brkNone
 			if collapse {

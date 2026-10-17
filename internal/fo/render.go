@@ -248,32 +248,20 @@ func (r *renderCtx) drawLeader(ld *leaderSpec, x, baseline, w float64) {
 		if n <= 0 {
 			return
 		}
-		// right-align the pattern cells within the leader area
-		slack := w - float64(n)*ld.patW
-		gl := make([]pdf.Glyph, 0, n)
-		run := ld.patRuns[0]
-		if len(run.glyphs) == 0 {
-			return
-		}
+		cellW := runsWidth(ld.patRuns)
+		slack := w - float64(n)*ld.patW // pattern is right-aligned in the leader area
+		cx := x + slack
 		for i := 0; i < n; i++ {
-			g := run.glyphs[0]
-			g.Extra = ld.patW - (run.width - run.glyphs[0].Extra)
-			if len(ld.patRuns) > 1 {
-				break
-			}
-			gl = append(gl, g)
-		}
-		if len(ld.patRuns) > 1 {
-			cx := x + slack
-			for i := 0; i < n; i++ {
-				for _, rr := range ld.patRuns {
-					r.drawGlyphs(ld.style, rr.ft, cx, baseline, rr.glyphs)
-					cx += rr.width
+			for k, rr := range ld.patRuns {
+				gl := append([]pdf.Glyph(nil), rr.glyphs...)
+				if k == len(ld.patRuns)-1 && len(gl) > 0 {
+					gl[len(gl)-1].Extra += ld.patW - cellW // pad the cell to the pattern pitch
 				}
+				r.drawGlyphs(ld.style, rr.ft, cx, baseline, gl)
+				cx += rr.width
 			}
-			return
+			cx += ld.patW - cellW
 		}
-		r.drawGlyphs(ld.style, run.ft, x+slack, baseline, gl)
 	}
 }
 

@@ -32,10 +32,12 @@ type Engine struct {
 	warned map[string]bool
 
 	styles  map[*Node]*textStyle
+	links   map[*Node]*linkTarget
 	images  map[string]*imageData
 	ids     map[string]idInfo // from the pass in progress
 	prevIDs map[string]idInfo // from the previous pass
 	cited   bool              // page-number-citation seen
+	cites   map[string]bool   // ids cited in the pass in progress
 	pxPt    float64
 }
 
@@ -263,15 +265,21 @@ func (e *Engine) styleFor(n *Node) *textStyle {
 	// link target inherited from enclosing basic-link
 	for c := el; c != nil; c = c.Parent {
 		if c.Name == "basic-link" {
+			if lt, ok := e.links[c]; ok {
+				st.link = lt
+				break
+			}
 			lt := &linkTarget{}
 			if d := c.Props["internal-destination"]; d != "" {
 				lt.destID = d
 			} else if d := c.Props["external-destination"]; d != "" {
 				lt.uri = unwrapURL(d)
 			}
-			if lt.destID != "" || lt.uri != "" {
-				st.link = lt
+			if lt.destID == "" && lt.uri == "" {
+				lt = nil
 			}
+			e.links[c] = lt
+			st.link = lt
 			break
 		}
 	}

@@ -48,12 +48,13 @@ func Render(root *Node, opts Options) (*pdf.Document, error) {
 	if opts.PxPerPt <= 0 {
 		opts.PxPerPt = 1
 	}
-	e := &Engine{opts: opts, fonts: opts.Fonts, warned: map[string]bool{}, styles: map[*Node]*textStyle{},
+	e := &Engine{opts: opts, fonts: opts.Fonts, warned: map[string]bool{}, styles: map[*Node]*textStyle{}, links: map[*Node]*linkTarget{},
 		images: map[string]*imageData{}, pxPt: opts.PxPerPt}
 	var doc *pdf.Document
 	for pass := 0; pass < 6; pass++ {
 		e.ids = map[string]idInfo{}
 		e.cited = false
+		e.cites = map[string]bool{}
 		var err error
 		doc, err = e.renderOnce(root)
 		if err != nil {
@@ -63,6 +64,11 @@ func Render(root *Node, opts Options) (*pdf.Document, error) {
 			return doc, nil
 		}
 		if sameIDs(e.ids, e.prevIDs) {
+			for id := range e.cites {
+				if _, ok := e.ids[id]; !ok {
+					e.warn("page-number-citation: ref-id %q not found", strings.TrimSuffix(id, "\x00last"))
+				}
+			}
 			return doc, nil
 		}
 		e.prevIDs = e.ids
@@ -180,6 +186,13 @@ func (e *Engine) renderOnce(root *Node) (*pdf.Document, error) {
 	doc.Info.Producer = firstNonEmpty(e.opts.Producer, "fop-go (Go implementation of XSL-FO to PDF)")
 	doc.Info.Created = time.Now()
 	return doc, nil
+}
+
+func flowID(ps *Node) string {
+	if f := ps.Find("flow"); f != nil {
+		return f.Props["id"]
+	}
+	return ""
 }
 
 func firstNonEmpty(ss ...string) string {
@@ -343,8 +356,10 @@ func (s *seqRun) run(startNum int) (int, error) {
 	case "even-document":
 	}
 	_ = total
-	if id := ps.Props["id"]; id != "" {
-		s.e.ids[id+"\x00last"] = idInfo{pageNum: s.lastNum}
+	for _, id := range []string{ps.Props["id"], flowID(ps)} {
+		if id != "" {
+			s.e.ids[id+"\x00last"] = idInfo{pageNum: s.lastNum}
+		}
 	}
 	return pnum, nil
 }

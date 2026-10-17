@@ -63,7 +63,7 @@ func ParseBytes(data []byte) (*Node, error) {
 				return nil, fmt.Errorf("xml: line %d: undeclared namespace prefix %q", line, el.Prefix)
 			}
 			for _, a := range plain {
-				an := NewAttr(a.Name.Space, a.Name.Local, "", unescapeNewlines(a.Value))
+				an := NewAttr(a.Name.Space, a.Name.Local, "", a.Value)
 				if a.Name.Space != "" {
 					uri, ok := el.LookupNamespace(a.Name.Space)
 					if !ok {
@@ -111,8 +111,6 @@ func ParseBytes(data []byte) (*Node, error) {
 	}
 	return doc, nil
 }
-
-func unescapeNewlines(s string) string { return s }
 
 func charsetReader(label string, input io.Reader) (io.Reader, error) {
 	switch strings.ToLower(strings.ReplaceAll(label, "_", "-")) {

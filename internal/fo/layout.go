@@ -374,6 +374,7 @@ func (bb *blockBuilder) node(c *Node) {
 			id += "\x00last"
 		}
 		text := "00"
+		e.cites[id] = true
 		if info, ok := e.prevIDs[id]; ok {
 			text = info.pageNum
 		}
