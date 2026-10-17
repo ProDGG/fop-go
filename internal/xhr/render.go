@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"github.com/ProDGG/fop-go/internal/pdf"
@@ -138,52 +139,149 @@ func paintingHeight(b *Box) int {
 	return maxY
 }
 
-// writeOutline builds bookmarks from h1..h6 like HTMLOutline.
-func (p *painter) writeOutline() {
-	type entry struct {
-		level int
-		title string
-		box   *Box
+var outlineRoot = map[string]bool{"blockquote": true, "details": true, "fieldset": true, "figure": true, "td": true}
+
+// outlineLevel is HTMLOutline.getOutlineLevel.
+func outlineLevel(e *xmldom.Node) string {
+	bm := strings.TrimSpace(e.Attr("data-pdf-bookmark"))
+	if bm != "" {
+		return bm
 	}
-	var entries []entry
-	var walkBoxes func(b *Box)
-	walkBoxes = func(b *Box) {
-		if b.Elem != nil && !b.anonymous && b.Kind == KBlock {
-			n := b.Elem.Name
-			if len(n) == 2 && n[0] == 'h' && n[1] >= '1' && n[1] <= '6' {
-				entries = append(entries, entry{int(n[1] - '0'), elementTextDeep(b.Elem), b})
+	n := strings.ToLower(e.Name)
+	if len(n) == 2 && n[0] == 'h' && n[1] >= '1' && n[1] <= '6' {
+		return string(n[1])
+	}
+	if outlineRoot[n] {
+		return "exclude"
+	}
+	return "none"
+}
+
+type outlineNode struct {
+	level    int
+	name     string
+	parent   *outlineNode
+	children []*outlineNode
+	box      *Box
+	href     string
+}
+
+// writeOutline is ITextOutputDevice.writeOutline with HTMLOutline.generate: the
+// bookmarks come from the DOM headings (whether or not they produced a box).
+func (p *painter) writeOutline() {
+	root := &outlineNode{}
+	cur := root
+	byElem := map[*xmldom.Node]*outlineNode{}
+	var walk func(e *xmldom.Node)
+	walk = func(e *xmldom.Node) {
+		// NodeIterator treats rejected and skipped elements alike: only the element itself is left out
+		lvl := outlineLevel(e)
+		if !strings.EqualFold(lvl, "none") && !strings.EqualFold(lvl, "exclude") {
+			if level, err := strconv.Atoi(lvl); err == nil && level >= 1 {
+				name := strings.TrimSpace(e.Attr("data-pdf-bookmark-name"))
+				if name == "" {
+					name = e.StringValue()
+				}
+				name = strings.Join(strings.Fields(name), " ")
+				if r := []rune(name); len(r) > 200 {
+					name = string(r[:200])
+				}
+				for cur.level >= level {
+					cur = cur.parent
+				}
+				n := &outlineNode{level: level, name: name, parent: cur}
+				cur.children = append(cur.children, n)
+				cur = n
+				byElem[e] = n
+			}
+		}
+		for _, c := range e.Children {
+			if c.Type == xmldom.ElementNode {
+				walk(c)
+			}
+		}
+	}
+	explicit := false
+	if p.d.root != nil {
+		// <head><bookmarks><bookmark name="" href=""> overrides the generated outline
+		for _, h := range p.d.root.Children {
+			if h.Type != xmldom.ElementNode || h.Name != "head" {
+				continue
+			}
+			for _, bs := range h.Children {
+				if bs.Type != xmldom.ElementNode || bs.Name != "bookmarks" {
+					continue
+				}
+				var load func(parent *outlineNode, e *xmldom.Node)
+				load = func(parent *outlineNode, e *xmldom.Node) {
+					n := &outlineNode{name: e.Attr("name"), href: e.Attr("href"), parent: parent}
+					parent.children = append(parent.children, n)
+					explicit = true
+					for _, c := range e.Children {
+						if c.Type == xmldom.ElementNode && c.Name == "bookmark" {
+							load(n, c)
+						}
+					}
+				}
+				for _, bm := range bs.Children {
+					if bm.Type == xmldom.ElementNode && bm.Name == "bookmark" {
+						load(root, bm)
+					}
+				}
+			}
+		}
+		if !explicit {
+			walk(p.d.root)
+		}
+	}
+	if len(root.children) == 0 {
+		return
+	}
+	var initBoxes func(b *Box)
+	initBoxes = func(b *Box) {
+		if b.Elem != nil {
+			if n := byElem[b.Elem]; n != nil {
+				n.box = b
 			}
 		}
 		for _, c := range b.children {
-			walkBoxes(c)
+			initBoxes(c)
 		}
 	}
-	walkBoxes(p.d.mainLayer.master)
-	if len(entries) == 0 {
-		return
-	}
-	var roots []*pdf.Outline
-	type frame struct {
-		level int
-		o     *pdf.Outline
-	}
-	var stack []frame
-	for _, e := range entries {
-		pb := p.d.mainLayer.pageAt(p.lc, e.box.absY)
-		dist := pb.mbp(Top) + e.box.absY - pb.top
-		o := &pdf.Outline{Title: e.title, Page: pb.pageNo, Y: float64(pb.height())/p.dpp - float64(dist)/p.dpp}
-		for len(stack) > 0 && stack[len(stack)-1].level >= e.level {
-			stack = stack[:len(stack)-1]
+	initBoxes(p.d.mainLayer.master)
+	var resolve func(list []*outlineNode)
+	resolve = func(list []*outlineNode) {
+		for _, n := range list {
+			if strings.HasPrefix(n.href, "#") {
+				if b := p.d.boxIDs[n.href[1:]]; b != nil {
+					n.box = b
+				}
+			}
+			resolve(n.children)
 		}
-		if len(stack) == 0 {
-			roots = append(roots, o)
-		} else {
-			par := stack[len(stack)-1].o
-			par.Children = append(par.Children, o)
-		}
-		stack = append(stack, frame{e.level, o})
 	}
-	p.pdoc.Outlines = roots
+	resolve(root.children)
+	var build func(list []*outlineNode) []*pdf.Outline
+	build = func(list []*outlineNode) []*pdf.Outline {
+		var res []*pdf.Outline
+		for _, n := range list {
+			o := &pdf.Outline{Title: n.name}
+			if n.box != nil {
+				pb := p.d.mainLayer.pageAt(p.lc, n.box.absY)
+				dist := pb.mbp(Top) + n.box.absY - pb.top
+				o.Page = pb.pageNo
+				o.Y = float64(pb.height())/p.dpp - float64(dist)/p.dpp
+			} else {
+				o.Page = 0
+				o.FitH = true
+				o.Y = float64(p.d.mainLayer.pages[0].height()) / p.dpp
+			}
+			o.Children = build(n.children)
+			res = append(res, o)
+		}
+		return res
+	}
+	p.pdoc.Outlines = build(root.children)
 }
 
 func elementTextDeep(e *xmldom.Node) string {

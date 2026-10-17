@@ -52,6 +52,7 @@ type Outline struct {
 	Title    string
 	Page     int // page index; -1 when unresolved
 	Y        float64
+	FitH     bool // destination is the top of the page (/FitH Y) instead of /XYZ
 	Children []*Outline
 	Open     bool
 }
@@ -660,7 +661,11 @@ func (d *Document) writeOutlines(w *writer, pageObjs []int) int {
 				fmt.Fprintf(&sb, " /Next %d 0 R", nums[i+1])
 			}
 			if it.Page >= 0 && it.Page < len(pageObjs) {
-				fmt.Fprintf(&sb, " /Dest [%d 0 R /XYZ 0 %s null]", pageObjs[it.Page], Num(it.Y))
+				if it.FitH {
+					fmt.Fprintf(&sb, " /Dest [%d 0 R /FitH %s]", pageObjs[it.Page], d.num(it.Y))
+				} else {
+					fmt.Fprintf(&sb, " /Dest [%d 0 R /XYZ 0 %s null]", pageObjs[it.Page], d.num(it.Y))
+				}
 			}
 			if len(it.Children) > 0 {
 				f, l, c := build(it.Children, nums[i])
