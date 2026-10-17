@@ -382,25 +382,31 @@ func (b *Box) calculateHeight() {
 	b.height = int(math.Ceil(float64(border.Top + padding.Top + m.Ascent + m.Descent + padding.Bottom + border.Bottom)))
 }
 
-func (b *Box) addInlineChild(child interface{}, callUnmarkPending bool) {
+func (b *Box) addInlineChild(lc *LayoutContext, child interface{}, callUnmarkPending bool) {
 	b.inlineChildren = append(b.inlineChildren, child)
 	if callUnmarkPending && b.pending {
-		b.unmarkPending()
+		b.unmarkPending(lc)
 	}
 	switch c := child.(type) {
 	case *Box:
 		c.parent = b
+		c.initContainingLayer(lc)
 	case *InlineText:
 		c.parent = b
 	}
 }
 
-func (b *Box) unmarkPending() {
+func (b *Box) unmarkPending(lc *LayoutContext) {
 	b.pending = false
 	if b.parent != nil && b.parent.Kind == KInline && b.parent.pending {
-		b.parent.unmarkPending()
+		b.parent.unmarkPending(lc)
 	}
 	b.startsHere = true
+	if b.Style.RequiresLayer() {
+		lc.pushLayer(b)
+		b.layer.inline = true
+		b.connectChildrenToCurrentLayer(lc)
+	}
 }
 
 func (b *Box) prunePending() {
@@ -553,6 +559,7 @@ func newLine(lc *LayoutContext, y int, box *Box) *Box {
 	l := &Box{Kind: KLine}
 	l.Style = box.Style.CreateAnonymousStyle("block")
 	l.parent = box
+	l.initContainingLayer(lc)
 	l.y = y
 	l.calcCanvasLocation()
 	return l
@@ -1116,7 +1123,7 @@ func positionVertically(lc *LayoutContext, container, cur *Box, marker *MarkerDa
 	cur.paintingHeight = paintingBottom - paintingTop
 }
 
-func (box *Box) saveLine(lc *LayoutContext, current *Box, minHeight, maxAvail int, pendingFloats *[]*floatLayoutResult, marker *MarkerData, contentStart int, alwaysBreak bool) {
+func (box *Box) saveLine(lc *LayoutContext, current *Box, minHeight, maxAvail int, pendingFloats *[]*floatLayoutResult, pendingInlineLayers *[]*Layer, marker *MarkerData, contentStart int, alwaysBreak bool) {
 	current.contentStart = contentStart
 	current.prunePendingInlineBoxes()
 	total := positionHorizontallyBox(current, 0)
@@ -1128,7 +1135,13 @@ func (box *Box) saveLine(lc *LayoutContext, current *Box, minHeight, maxAvail in
 	current.checkPagePosition(lc, alwaysBreak)
 	alignLine(lc, current, maxAvail)
 	current.calcChildLocations()
-	box.addChild(current)
+	box.addChildForLayout(lc, current)
+	if len(*pendingInlineLayers) > 0 {
+		for _, l := range *pendingInlineLayers {
+			l.positionChildren(lc)
+		}
+		*pendingInlineLayers = nil
+	}
 	if len(*pendingFloats) > 0 {
 		for _, r := range *pendingFloats {
 			layoutFloated(lc, current, r.block, maxAvail, nil)
@@ -1177,10 +1190,10 @@ func addOpenInlineBoxes(lc *LayoutContext, line *Box, openParents []*InlineSrc, 
 		}
 		ibMap[ib] = cur
 		if first {
-			line.addChild(cur)
+			line.addChildForLayout(lc, cur)
 			first = false
 		} else {
-			prev.addInlineChild(cur, false)
+			prev.addInlineChild(lc, cur, false)
 		}
 		prev = cur
 	}
@@ -1229,6 +1242,7 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 	}
 	lc.markerData = nil
 	var pendingFloats []*floatLayoutResult
+	var pendingInlineLayers []*Layer
 	pendingLeftMBP, pendingRightMBP := 0, 0
 	zeroWidthInlineBlock := false
 	lineOffset := 0
@@ -1243,9 +1257,9 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 				openInline = append(openInline, iB)
 				ibMap[iB] = currentIB
 				if previousIB == nil {
-					currentLine.addChild(currentIB)
+					currentLine.addChildForLayout(lc, currentIB)
 				} else {
-					previousIB.addInlineChild(currentIB, true)
+					previousIB.addInlineChild(lc, currentIB, true)
 				}
 				if currentIB.Elem != nil && currentIB.Elem.Name == "a" {
 					if n, ok := currentIB.Elem.AttrOK("name"); ok && n != "" {
@@ -1308,7 +1322,7 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 					if text.fn != nil {
 						currentLine.containsDynamicFn = true
 					}
-					currentIB.addInlineChild(text, true)
+					currentIB.addInlineChild(lc, text, true)
 					currentLine.containsContent = true
 					ctx.start = ctx.end
 					remaining -= text.width
@@ -1324,7 +1338,7 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 					if iB.style.IsTextJustify() {
 						currentLine.trimTrailingSpace()
 					}
-					box.saveLine(lc, currentLine, minimumLineHeight, maxAvail, &pendingFloats, marker, contentStart,
+					box.saveLine(lc, currentLine, minimumLineHeight, maxAvail, &pendingFloats, &pendingInlineLayers, marker, contentStart,
 						box.isAlwaysBreak(lc, breakAtLine, lineOffset))
 					lineOffset++
 					marker = nil
@@ -1353,10 +1367,17 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 				remaining -= right
 				openInline = openInline[:len(openInline)-1]
 				if currentIB.pending {
-					currentIB.unmarkPending()
+					currentIB.unmarkPending(lc)
 					currentIB.startsHere = iB.startsHere
 				}
 				currentIB.endsHere = true
+				if currentIB.Style.RequiresLayer() {
+					if !currentIB.pending {
+						lc.layer().end = currentIB
+						lc.popLayer()
+						pendingInlineLayers = append(pendingInlineLayers, currentIB.containingLayer)
+					}
+				}
 				previousIB = currentIB
 				if currentIB.parent.Kind == KLine {
 					currentIB = nil
@@ -1373,7 +1394,7 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 			case cs.IsInlineBlock() || cs.IsInlineTable():
 				layoutInlineBlockContent(lc, box, child, initialY)
 				if child.width() > remaining && currentLine.containsContent {
-					box.saveLine(lc, currentLine, minimumLineHeight, maxAvail, &pendingFloats, marker, contentStart,
+					box.saveLine(lc, currentLine, minimumLineHeight, maxAvail, &pendingFloats, &pendingInlineLayers, marker, contentStart,
 						box.isAlwaysBreak(lc, breakAtLine, lineOffset))
 					lineOffset++
 					marker = nil
@@ -1392,9 +1413,9 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 					layoutInlineBlockContent(lc, box, child, initialY)
 				}
 				if currentIB == nil {
-					currentLine.addChild(child)
+					currentLine.addChildForLayout(lc, child)
 				} else {
-					currentIB.addInlineChild(child, true)
+					currentIB.addInlineChild(lc, child, true)
 				}
 				currentLine.containsContent = true
 				currentLine.containsBlockLevel = true
@@ -1410,7 +1431,7 @@ func (box *Box) layoutInlineContent(lc *LayoutContext, initialY, breakAtLine int
 	}
 	_ = previousIB
 	currentLine.trimTrailingSpace()
-	box.saveLine(lc, currentLine, minimumLineHeight, maxAvail, &pendingFloats, marker, contentStart,
+	box.saveLine(lc, currentLine, minimumLineHeight, maxAvail, &pendingFloats, &pendingInlineLayers, marker, contentStart,
 		box.isAlwaysBreak(lc, breakAtLine, lineOffset))
 	if currentLine.isFirstLine() && currentLine.height == 0 && marker != nil {
 		lc.markerData = marker
@@ -1430,6 +1451,7 @@ func layoutText(style *Style, remaining int, ctx *lbContext) *InlineText {
 
 func layoutInlineBlockContent(lc *LayoutContext, containing, inlineBlock *Box, initialY int) {
 	inlineBlock.containingBlk = containing
+	inlineBlock.containingLayer = lc.layer()
 	inlineBlock.initStaticPos(lc, containing, initialY)
 	inlineBlock.calcCanvasLocation()
 	inlineBlock.layoutBox(lc)
@@ -1440,8 +1462,8 @@ func processOutOfFlowContent(lc *LayoutContext, current *Box, block *Box, availa
 	st := block.Style
 	switch {
 	case st.IsAbsolute() || st.IsFixed():
-		// absolutely positioned boxes are not supported: they take no space
-		block.staticEquivalent = current
+		layoutAbsolute(lc, current, block)
+		current.nonFlowContent = append(current.nonFlowContent, block)
 	case st.IsFloated():
 		r := layoutFloated(lc, current, block, available, pending)
 		if r.pending {

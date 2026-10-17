@@ -90,7 +90,7 @@ func (d *Doc) createRootBox(lc *LayoutContext) *Box {
 	res.setStyle(style)
 	res.Elem = root
 	lc.resolveCounters(style, nil)
-	lc.pushLayerBox(res)
+	lc.pushLayer(res)
 	lc.rootLayer.addPage(lc)
 	return res
 }

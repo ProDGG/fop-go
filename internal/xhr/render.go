@@ -82,10 +82,11 @@ func render(docNode *xmldom.Node, opts Options) ([]byte, error) {
 	vp.contentWidth = first.contentWidth()
 	vp.height = first.contentHeight()
 	vp.isInitialCB = true
+	vp.fixedRect = &Rect{0, 0, vp.contentWidth, vp.height}
 	rootBox.containingBlk = vp
 	rootBox.layoutBox(lc)
 	d.mainLayer = lc.rootLayer
-	dimH := paintingHeight(rootBox)
+	dimH := layerPaintingHeight(lc.rootLayer, rootBox)
 	lc.rootLayer.trimEmptyPages(dimH)
 	if opts.Dump != nil {
 		dumpBox(opts.Dump, rootBox, 0)
@@ -103,6 +104,14 @@ func render(docNode *xmldom.Node, opts Options) ([]byte, error) {
 		pn.paintPage(pb, i, count)
 	}
 	pn.writeOutline()
+	if opts.Dump != nil && len(main.pages) > 0 {
+		for i, a := range main.pages[0].areas {
+			if a != nil && a.table != nil {
+				fmt.Fprintf(opts.Dump, "-- margin area %d\n", i)
+				dumpBox(opts.Dump, a.table, 0)
+			}
+		}
+	}
 	var buf bytes.Buffer
 	if err := pdoc.Write(&buf); err != nil {
 		return nil, err
@@ -192,4 +201,19 @@ func elementTextDeep(e *xmldom.Node) string {
 	}
 	walk(e)
 	return strings.TrimSpace(strings.Join(strings.Fields(sb.String()), " "))
+}
+
+// layerPaintingHeight is Layer.getPaintingDimension: the master's extent grown
+// by absolutely positioned child layers.
+func layerPaintingHeight(l *Layer, master *Box) int {
+	h := paintingHeight(master)
+	for _, c := range l.children {
+		if c.master.Style.IsFixed() || !c.master.Style.IsAbsolute() {
+			continue
+		}
+		if ch := layerPaintingHeight(c, c.master); ch > h {
+			h = ch
+		}
+	}
+	return h
 }

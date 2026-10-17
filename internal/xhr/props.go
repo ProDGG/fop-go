@@ -91,6 +91,9 @@ var propTable = map[string]propInfo{
 	"word-spacing":                  {true, "normal"},
 	"word-wrap":                     {true, "normal"},
 	"hyphens":                       {true, "none"},
+	"justify-content":               {false, "flex-start"},
+	"align-items":                   {false, "stretch"},
+	"flex-direction":                {false, "row"},
 	"z-index":                       {false, "auto"},
 	"border-top-color":              {false, "=color"},
 	"border-right-color":            {false, "=color"},
@@ -177,6 +180,9 @@ var singleIdent = map[string]map[string]bool{
 	"white-space":                idents("normal pre nowrap pre-wrap pre-line"),
 	"word-wrap":                  idents("normal break-word"),
 	"hyphens":                    idents("none manual auto"),
+	"justify-content":            idents("flex-start flex-end center space-between space-around space-evenly start end left right normal stretch"),
+	"align-items":                idents("flex-start flex-end center baseline stretch start end normal"),
+	"flex-direction":             idents("row row-reverse column column-reverse"),
 	"box-sizing":                 idents("border-box content-box"),
 }
 

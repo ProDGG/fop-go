@@ -3,6 +3,7 @@ package xhr
 import (
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/ProDGG/fop-go/internal/font"
 	"github.com/ProDGG/fop-go/internal/pdf"
@@ -27,12 +28,13 @@ type painter struct {
 	tx, ty float64 // translation in dots
 	clip   Rect    // clip in document coordinates
 
-	fonts   map[*FontDesc]*pdf.Font
-	imgs    map[*Image]*pdf.Image
-	curPage *PageBox
-	pageNo  int
-	pageCnt int
-	layer   *Layer
+	fonts    map[*FontDesc]*pdf.Font
+	imgs     map[*Image]*pdf.Image
+	curPage  *PageBox
+	pageNo   int
+	pageCnt  int
+	layer    *Layer
+	inMargin bool // painting a page margin box
 
 	linkSeen map[string]bool
 	color    RGB
@@ -99,7 +101,9 @@ func (p *painter) paintPage(pb *PageBox, no, count int) {
 		p.tx, p.ty = float64(x), float64(y)
 		p.clip = Rect{-1 << 30, -1 << 30, 1 << 31, 1 << 31}
 		p.layer = mc.layer
+		p.inMargin = true
 		p.paintLayer(mc.table, mc.layer)
+		p.inMargin = false
 		p.tx, p.ty = 0, 0
 	}
 	// content
@@ -125,8 +129,48 @@ func (p *painter) py0(y float64) float64 { return float64(float32(p.pageH) - flo
 // ---- layer painting ------------------------------------------------------------------------
 
 type collected struct {
-	blocks []*Box
-	lines  []Painted
+	blocks      []*Box
+	lines       []*Box
+	blockRanges []boxRange
+	lineRanges  []boxRange
+}
+
+// boxRange is a BoxRangeData: content [start,end) that is clipped to box's padding edge.
+type boxRange struct {
+	box        *Box
+	start, end int
+}
+
+// rangeHelper is BoxRangeHelper.
+type rangeHelper struct {
+	p      *painter
+	ranges []boxRange
+	idx    int
+	stack  []boxRange
+}
+
+func (p *painter) newRangeHelper(r []boxRange) *rangeHelper { return &rangeHelper{p: p, ranges: r} }
+
+func (h *rangeHelper) push(i int) {
+	for h.idx < len(h.ranges) && h.ranges[h.idx].start == i {
+		r := h.ranges[h.idx]
+		h.stack = append(h.stack, r)
+		h.p.page.Save()
+		h.p.clipRect(r.box.paddingEdge(r.box.absX, r.box.absY))
+		h.idx++
+	}
+}
+
+func (h *rangeHelper) pop(i int) {
+	for len(h.stack) > 0 && h.stack[len(h.stack)-1].end == i {
+		h.p.page.Restore()
+		h.p.fillSet = false
+		h.stack = h.stack[:len(h.stack)-1]
+	}
+}
+
+func (b *Box) needsClipOnPaint() bool {
+	return b.replaced == nil && b.Style != nil && b.Style.IsIdent("overflow", "hidden") && b.Style.IsOverflowApplies()
 }
 
 // Painted is anything in the inline content list.
@@ -152,18 +196,39 @@ func (p *painter) paintingClipEdge(b *Box) Rect {
 	return b.paintingBorderEdge()
 }
 
-func (p *painter) collect(container *Box, col *collected) {
+func (p *painter) inLayer(c *Box, layer *Layer) bool {
+	return c.containingLayer == nil || c.containingLayer == layer
+}
+
+// collect is BoxCollector.collect.
+func (p *painter) collect(layer *Layer, container *Box, col *collected) {
+	if !p.inLayer(container, layer) {
+		return
+	}
+	isBlock := container.isBlockish()
+	blockStart, lineStart := len(col.blocks), len(col.lines)
+	blockRangeStart, lineRangeStart := len(col.blockRanges), len(col.lineRanges)
+	defer func() {
+		if isBlock && container.needsClipOnPaint() {
+			if e := len(col.blocks); e != blockStart {
+				col.blockRanges = insertRange(col.blockRanges, blockRangeStart, boxRange{container, blockStart, e})
+			}
+			if e := len(col.lines); e != lineStart {
+				col.lineRanges = insertRange(col.lineRanges, lineRangeStart, boxRange{container, lineStart, e})
+			}
+		}
+	}()
 	if container.Kind == KLine {
 		if p.clip.Intersects(p.paintingClipEdge(container)) {
 			col.lines = append(col.lines, container)
-			for _, c := range container.children {
-				p.addInline(c, col)
-			}
+			container.addAllChildrenOfLayer(&col.lines, layer)
 		}
 		return
 	}
-	if p.intersectsBlock(container) || container.Kind == KTable {
-		col.blocks = append(col.blocks, container)
+	if container.layer == nil || !container.isBlockish() {
+		if p.intersectsBlock(container) || container.Kind == KTable {
+			col.blocks = append(col.blocks, container)
+		}
 	}
 	// prune subtrees that start below the visible area
 	if container.absY >= p.clip.Y+p.clip.H && container.parent != nil && container.Kind != KTable {
@@ -172,42 +237,134 @@ func (p *painter) collect(container *Box, col *collected) {
 			return
 		}
 	}
-	for _, c := range container.children {
-		p.collect(c, col)
-	}
-}
-
-func (p *painter) addInline(c *Box, col *collected) {
-	col.lines = append(col.lines, c)
-	if c.Kind == KInline {
-		for _, o := range c.inlineChildren {
-			if cb, ok := o.(*Box); ok {
-				p.addInline(cb, col)
-			}
+	if container.layer == nil || container == layer.master {
+		for _, c := range container.children {
+			p.collect(layer, c, col)
 		}
 	}
 }
 
-func (p *painter) paintLayer(master *Box, layer *Layer) {
-	p.paintRootBackground(master)
-	col := &collected{}
-	p.collect(master, col)
-	p.paintBackgroundsAndBorders(col.blocks)
-	for i := len(layer.floats) - 1; i >= 0; i-- {
-		p.paintAsLayer(layer.floats[i])
-	}
-	p.paintListMarkers(col.blocks)
-	p.paintInlineContent(col.lines)
-	p.paintReplacedElements(col.blocks)
+func insertRange(l []boxRange, at int, r boxRange) []boxRange {
+	l = append(l, boxRange{})
+	copy(l[at+1:], l[at:])
+	l[at] = r
+	return l
 }
 
-func (p *painter) paintAsLayer(start *Box) {
+func (p *painter) intersectsAny(master, container *Box) bool {
+	if container.Kind == KLine {
+		return p.clip.Intersects(p.paintingClipEdge(container))
+	}
+	if container.layer == nil || !container.isBlockish() {
+		if p.intersectsBlock(container) {
+			return true
+		}
+	}
+	if container.layer == nil || container == master {
+		for _, c := range container.children {
+			if p.intersectsAny(master, c) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// collectInlineLayer is BoxCollector.collectInlineLayer.
+func (p *painter) collectInlineLayer(layer *Layer, col *collected) {
+	for _, b := range layer.master.elementWithContent() {
+		if !p.intersectsBlock(b) {
+			continue
+		}
+		switch {
+		case b.Kind == KInline:
+			col.lines = append(col.lines, b)
+		case b.isInlineChild():
+			if p.intersectsAny(b, b) {
+				col.lines = append(col.lines, b)
+			}
+		default:
+			p.collect(layer, b, col)
+		}
+	}
+}
+
+func (p *painter) paintLayerBackgroundAndBorder(layer *Layer) {
+	if layer.master.isBlockish() {
+		p.paintBackground(layer.master)
+		p.paintBorder(layer.master)
+	}
+}
+
+func (p *painter) paintLayers(layers []*Layer) {
+	for _, l := range layers {
+		p.paintLayer(l.master, l)
+	}
+}
+
+// positionFixedLayer is Layer.positionFixedLayer for the current page.
+func (p *painter) positionFixedLayer(layer *Layer) {
+	pb := p.curPage
+	r := Rect{0, -pb.top, pb.contentWidth(), pb.contentHeight() - 1}
+	r.X--
+	r.Y--
+	fixed := layer.master
+	fixed.x, fixed.y, fixed.absX, fixed.absY = 0, 0, 0, 0
+	vp := newBox(KBlock)
+	vp.fixedRect = &r
+	vp.contentWidth = r.W
+	vp.height = r.H
+	fixed.containingBlk = vp
+	fixed.positionAbsolute(posBoth)
+}
+
+// paintLayer is Layer.paint.
+func (p *painter) paintLayer(master *Box, layer *Layer) {
+	if master.Style != nil && master.Style.IsFixed() {
+		p.positionFixedLayer(layer)
+	}
+	if layer.isRootLayer() {
+		p.paintRootBackground(master)
+	}
+	if !layer.inline && layer.master.replaced != nil {
+		p.paintLayerBackgroundAndBorder(layer)
+		p.paintReplacedElements([]*Box{layer.master}, nil)
+		return
+	}
 	col := &collected{}
-	p.collect(start, col)
-	p.paintBackgroundsAndBorders(col.blocks)
-	p.paintListMarkers(col.blocks)
-	p.paintInlineContent(col.lines)
-	p.paintReplacedElements(col.blocks)
+	if layer.inline {
+		p.collectInlineLayer(layer, col)
+	} else {
+		p.collect(layer, layer.master, col)
+	}
+	if !layer.inline {
+		p.paintLayerBackgroundAndBorder(layer)
+	}
+	stacking := layer.isRootLayer() || layer.stackingContext
+	if stacking {
+		p.paintLayers(layer.sortedLayers(layersNegative))
+	}
+	p.paintBackgroundsAndBorders(col.blocks, col.blockRanges)
+	for i := len(layer.floats) - 1; i >= 0; i-- {
+		p.paintAsLayer(layer, layer.floats[i])
+	}
+	p.paintListMarkers(col.blocks, col.blockRanges)
+	p.paintInlineContent(col.lines, col.lineRanges)
+	p.paintReplacedElements(col.blocks, col.blockRanges)
+	if stacking {
+		p.paintLayers(layer.collectLayers(layersAuto))
+		p.paintLayers(layer.sortedLayers(layersZero))
+		p.paintLayers(layer.sortedLayers(layersPositive))
+	}
+}
+
+func (p *painter) paintAsLayer(layer *Layer, start *Box) {
+	col := &collected{}
+	p.collect(layer, start, col)
+	p.paintBackgroundsAndBorders(col.blocks, col.blockRanges)
+	p.paintListMarkers(col.blocks, col.blockRanges)
+	p.paintInlineContent(col.lines, col.lineRanges)
+	p.paintReplacedElements(col.blocks, col.blockRanges)
 }
 
 func (p *painter) paintRootBackground(master *Box) {
@@ -234,7 +391,7 @@ func hasBackground(s *Style) bool {
 	return !(s.IsIdent("background-color", "transparent") && s.IsIdent("background-image", "none"))
 }
 
-func (p *painter) paintBackgroundsAndBorders(blocks []*Box) {
+func (p *painter) paintBackgroundsAndBorders(blocks []*Box, ranges []boxRange) {
 	// collapsed table borders are painted when the last cell of a table has been painted
 	cellsByTable := map[*Box][]*Box{}
 	triggers := map[*Box]*Box{}
@@ -276,7 +433,9 @@ func (p *painter) paintBackgroundsAndBorders(blocks []*Box) {
 		})
 		bordersFor[triggers[t]] = list
 	}
-	for _, b := range blocks {
+	h := p.newRangeHelper(ranges)
+	for i, b := range blocks {
+		h.pop(i)
 		p.paintBackground(b)
 		p.paintBorder(b)
 		if b.Kind == KCell && b.collapsedPaintingBorder != nil {
@@ -284,7 +443,9 @@ func (p *painter) paintBackgroundsAndBorders(blocks []*Box) {
 				p.paintCollapsedBorder(s.cell, s.side)
 			}
 		}
+		h.push(i)
 	}
+	h.pop(len(blocks))
 }
 
 func cbOfSide(c *Box, s int) *collapsedBorder {
@@ -606,12 +767,16 @@ func darken(c *RGB) *RGB {
 
 // ---- list markers ------------------------------------------------------------------------------
 
-func (p *painter) paintListMarkers(blocks []*Box) {
-	for _, b := range blocks {
+func (p *painter) paintListMarkers(blocks []*Box, ranges []boxRange) {
+	h := p.newRangeHelper(ranges)
+	for i, b := range blocks {
+		h.pop(i)
 		if b.Style.IsVisible() && b.Style.IsListItem() && b.markerData != nil {
 			p.paintListMarker(b)
 		}
+		h.push(i)
 	}
+	h.pop(len(blocks))
 }
 
 func (p *painter) refX(b *Box) int {
@@ -694,9 +859,11 @@ func (p *painter) strokeOval(c *RGB, x, y, w, h int) {
 
 // ---- inline content ---------------------------------------------------------------------------------
 
-func (p *painter) paintInlineContent(lines []Painted) {
-	for _, l := range lines {
-		b := l.(*Box)
+func (p *painter) paintInlineContent(lines []*Box, ranges []boxRange) {
+	h := p.newRangeHelper(ranges)
+	for i, b := range lines {
+		h.pop(i)
+		h.push(i)
 		switch b.Kind {
 		case KLine:
 			p.paintLineBox(b)
@@ -704,9 +871,14 @@ func (p *painter) paintInlineContent(lines []Painted) {
 			p.paintInlineBox(b)
 		default:
 			// inline-block / inline-table
-			p.paintAsLayer(b)
+			cl := b.containingLayer
+			if cl == nil {
+				cl = p.layer
+			}
+			p.paintAsLayer(cl, b)
 		}
 	}
+	h.pop(len(lines))
 }
 
 func (p *painter) paintLineBox(l *Box) {
@@ -827,6 +999,11 @@ func (p *painter) drawString(f *FSFont, col *RGB, s string, x, y float64, info *
 	if len(s) == 0 || f == nil {
 		return
 	}
+	// whitespace-only runs in margin boxes (e.g. the blank after the logo in the
+	// running header) are not drawn by the reference output
+	if p.inMargin && strings.Trim(s, " ") == "" {
+		return
+	}
 	if col != nil {
 		p.setFill(col)
 	}
@@ -877,13 +1054,17 @@ func (p *painter) drawImage(img *Image, x, y int) {
 	p.page.DrawImage(pi, px, py, w, h)
 }
 
-func (p *painter) paintReplacedElements(blocks []*Box) {
-	for _, b := range blocks {
+func (p *painter) paintReplacedElements(blocks []*Box, ranges []boxRange) {
+	h := p.newRangeHelper(ranges)
+	for i, b := range blocks {
+		h.pop(i)
 		if b.replaced != nil {
 			ca := b.contentAreaEdge(b.absX, b.absY)
 			p.drawImage(b.replaced.img, ca.X, ca.Y)
 		}
+		h.push(i)
 	}
+	h.pop(len(blocks))
 }
 
 // ---- links ---------------------------------------------------------------------------------------------------

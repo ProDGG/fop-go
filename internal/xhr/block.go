@@ -1,6 +1,10 @@
 package xhr
 
-import "strings"
+import (
+	"fmt"
+	"os"
+	"strings"
+)
 
 // ---- layout entry points ---------------------------------------------------
 
@@ -433,6 +437,15 @@ func (b *Box) addBoxID(lc *LayoutContext) {
 // layout is BlockBox.layout(LayoutContext, int).
 func (b *Box) layout(lc *LayoutContext, contentStart int) {
 	style := b.Style
+	pushedLayer := false
+	if b.isRoot() || style.RequiresLayer() {
+		pushedLayer = true
+		if b.layer == nil {
+			lc.pushLayer(b)
+		} else {
+			lc.pushLayerObj(b.layer)
+		}
+	}
 	b.calcClearance(lc)
 	pushedBFC := false
 	if b.isRoot() || style.EstablishesBFC() || b.isMarginAreaRoot() {
@@ -496,6 +509,9 @@ func (b *Box) layout(lc *LayoutContext, contentStart int) {
 	b.calcLayoutHeight(lc, border, margin, padding)
 	if pushedBFC {
 		lc.popBFC()
+	}
+	if pushedLayer {
+		lc.popLayer()
 	}
 }
 
@@ -593,6 +609,9 @@ func (b *Box) layoutFlexRow(lc *LayoutContext) {
 		laid = append(laid, it)
 	}
 	avail := b.contentWidth
+	if os.Getenv("XHR_FLEXDBG") != "" {
+		fmt.Fprintf(os.Stderr, "flex avail=%d jc=%q n=%d\n", avail, b.Style.Ident("justify-content"), len(laid))
+	}
 	total := 0
 	for _, it := range laid {
 		total += it.width()
@@ -633,6 +652,9 @@ func (b *Box) layoutFlexRow(lc *LayoutContext) {
 		}
 		it.calcCanvasLocation()
 		it.calcChildLocations()
+		if os.Getenv("XHR_FLEXDBG") != "" {
+			fmt.Fprintf(os.Stderr, "  item x=%d w=%d abs=%d float=%v\n", it.x, it.width(), it.absX, it.Style.IsFloated())
+		}
 		if y := it.y + it.height; y > h {
 			h = y
 		}
@@ -1253,11 +1275,13 @@ func (b *Box) reset(lc *LayoutContext) {
 		}
 	case KInline:
 		b.resetChildren(lc)
+		b.resetLayer()
 		b.contentWidth = 0
 		b.workingMargin = nil
 		return
 	}
 	b.resetChildren(lc)
+	b.resetLayer()
 	b.contentWidth = 0
 	b.workingMargin = nil
 	if b.Elem != nil {
@@ -1288,7 +1312,9 @@ func (b *Box) reset(lc *LayoutContext) {
 	}
 	if b.floated != nil && b.floated.manager != nil {
 		b.floated.manager.removeFloat(b)
-		lc.rootLayer.removeFloat(b)
+		if b.floated.drawingLayer != nil {
+			b.floated.drawingLayer.removeFloat(b)
+		}
 	}
 	if b.Style != nil && b.Style.IsRunning() {
 		lc.rootLayer.removeRunningBlock(b)

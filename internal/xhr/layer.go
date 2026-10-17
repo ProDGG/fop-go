@@ -14,8 +14,12 @@ func (b *BlockFormattingContext) translate(x, y int) { b.x -= x; b.y -= y }
 
 // LayoutState is the part of the layout context saved for relayout.
 type LayoutState struct {
-	markerData *MarkerData
-	pageName   string
+	markerData  *MarkerData
+	pageName    string
+	bfcs        []*BlockFormattingContext
+	extraTop    int
+	extraBottom int
+	noPageBreak int
 }
 
 // LayoutContext is Flying Saucer's LayoutContext.
@@ -23,6 +27,7 @@ type LayoutContext struct {
 	doc                  *Doc
 	rootLayer            *Layer
 	rootDocLayer         *Layer
+	layers               []*Layer
 	bfcs                 []*BlockFormattingContext
 	markerData           *MarkerData
 	extraTop             int
@@ -57,10 +62,31 @@ func (lc *LayoutContext) popBFC()                           { lc.bfcs = lc.bfcs[
 
 func (lc *LayoutContext) translate(x, y int) { lc.bfc().translate(x, y) }
 
-func (lc *LayoutContext) pushLayerBox(master *Box) {
+// layer is the innermost layer being laid out.
+func (lc *LayoutContext) layer() *Layer { return lc.layers[len(lc.layers)-1] }
+
+// pushLayer creates a layer mastered by the box (the first one is the root layer).
+func (lc *LayoutContext) pushLayer(master *Box) {
+	var l *Layer
 	if lc.rootLayer == nil {
-		lc.rootLayer = &Layer{master: master, running: map[string][]*Box{}}
+		l = newLayer(nil, master)
+		l.stackingContext = true
+		l.running = map[string][]*Box{}
+		lc.rootLayer = l
+	} else {
+		parent := lc.layer()
+		l = newLayer(parent, master)
+		parent.addChild(l)
 	}
+	lc.layers = append(lc.layers, l)
+}
+
+func (lc *LayoutContext) pushLayerObj(l *Layer) { lc.layers = append(lc.layers, l) }
+
+func (lc *LayoutContext) popLayer() {
+	l := lc.layer()
+	l.finish(lc)
+	lc.layers = lc.layers[:len(lc.layers)-1]
 }
 
 func (lc *LayoutContext) reInit(keepLayers bool) {
@@ -68,9 +94,24 @@ func (lc *LayoutContext) reInit(keepLayers bool) {
 	lc.bfcs = nil
 	if !keepLayers {
 		lc.rootLayer = nil
+		lc.layers = nil
 	}
 	lc.extraTop = 0
 	lc.extraBottom = 0
+}
+
+func (lc *LayoutContext) captureLayoutState() *LayoutState {
+	return &LayoutState{markerData: lc.markerData, pageName: lc.pageName, bfcs: lc.bfcs,
+		extraTop: lc.extraTop, extraBottom: lc.extraBottom, noPageBreak: lc.noPageBreak}
+}
+
+func (lc *LayoutContext) restoreLayoutState(s *LayoutState) {
+	lc.markerData = s.markerData
+	lc.bfcs = s.bfcs
+	lc.pageName = s.pageName
+	lc.extraTop = s.extraTop
+	lc.extraBottom = s.extraBottom
+	lc.noPageBreak = s.noPageBreak
 }
 
 func (lc *LayoutContext) copyStateForRelayout() *LayoutState {
@@ -84,15 +125,25 @@ func (lc *LayoutContext) restoreStateForRelayout(s *LayoutState) {
 
 // Layer is the root layer: it owns the page list and running elements.
 type Layer struct {
-	master        *Box
-	pages         []*PageBox
-	lastRequested *PageBox
-	running       map[string][]*Box
-	floats        []*Box
-	pageSeqs      []*Box
+	parent          *Layer
+	stackingContext bool
+	children        []*Layer
+	end             *Box
+	fixedBackground bool
+	inline          bool
+	requiresLayout  bool
+	master          *Box
+	pages           []*PageBox
+	lastRequested   *PageBox
+	running         map[string][]*Box
+	floats          []*Box
+	pageSeqs        []*Box
 }
 
-func (l *Layer) addFloat(b *Box) { l.floats = append(l.floats, b) }
+func (l *Layer) addFloat(b *Box) {
+	l.floats = append(l.floats, b)
+	b.floated.drawingLayer = l
+}
 func (l *Layer) removeFloat(b *Box) {
 	for i, f := range l.floats {
 		if f == b {

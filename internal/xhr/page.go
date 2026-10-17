@@ -137,12 +137,14 @@ func (pb *PageBox) layout(lc *LayoutContext) {
 		cb := newBox(KBlock)
 		cb.contentWidth = w
 		cb.height = h
+		cb.fixedRect = &Rect{0, 0, w, h}
 		table.containingBlk = cb
 		lc.noPageBreak = 1
 		lc.reInit(false)
-		lc.pushLayerBox(table)
+		lc.pushLayer(table)
 		lc.rootLayer.addPage(lc)
 		table.layoutBox(lc)
+		lc.popLayer()
 		lc.noPageBreak = 0
 		pb.areas[i] = &marginAreaContainer{area: area, table: table, layer: lc.rootLayer}
 	}

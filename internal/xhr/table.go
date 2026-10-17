@@ -853,6 +853,7 @@ func (r *Box) rowLayoutChildren(lc *LayoutContext, contentStart int) {
 }
 
 func (r *Box) layoutCell(lc *LayoutContext, cell *Box, contentStart int) {
+	cell.initContainingLayer(lc)
 	cell.calcCanvasLocation()
 	cell.layout(lc, contentStart)
 }

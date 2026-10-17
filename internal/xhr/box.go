@@ -100,6 +100,7 @@ func (t *InlineText) setSubstring(start, end int) {
 // floatedData is FloatedBoxData.
 type floatedData struct {
 	manager           *FloatManager
+	drawingLayer      *Layer
 	marginFromSibling int
 }
 
@@ -115,14 +116,16 @@ type Box struct {
 	height            int
 	tx, ty            int
 
-	parent         *Box
-	children       []*Box
-	index          int
-	containingBlk  *Box
-	relativeOffset *[2]int
-	workingMargin  *RectSet
-	pseudo         string
-	anonymous      bool
+	parent          *Box
+	children        []*Box
+	index           int
+	layer           *Layer // layer mastered by this box
+	containingLayer *Layer
+	containingBlk   *Box
+	relativeOffset  *[2]int
+	workingMargin   *RectSet
+	pseudo          string
+	anonymous       bool
 
 	// BlockBox
 	markerData       *MarkerData
@@ -145,6 +148,7 @@ type Box struct {
 	childrenHeight   int
 	fromCaptionedTbl bool
 	openInlineBoxes  []*InlineSrc // AnonymousBlockBox
+	fixedRect        *Rect        // viewport / margin box pseudo containing block extent
 	isInitialCB      bool         // viewport / page area pseudo containing block
 	marginAreaRoot   bool
 

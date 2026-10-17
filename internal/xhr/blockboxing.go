@@ -240,6 +240,7 @@ func layoutBlockChild(lc *LayoutContext, parent, child *Box, needPageClear bool,
 func layoutBlockChild0(lc *LayoutContext, parent, child *Box, needPageClear bool, childOffset, trimmedPageCount int) {
 	child.needPageClear = needPageClear
 	child.initStaticPos(lc, parent, childOffset)
+	child.initContainingLayer(lc)
 	child.calcCanvasLocation()
 	lc.translate(0, childOffset)
 	repositionBox(lc, child, trimmedPageCount)

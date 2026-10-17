@@ -52,7 +52,7 @@ func (fm *FloatManager) clear(bfc *BlockFormattingContext, box *Box) {
 func (fm *FloatManager) save(lc *LayoutContext, cur *Box, bfc *BlockFormattingContext, dir int) {
 	l := fm.floats(dir)
 	*l = append(*l, &boxOffset{cur, bfc.x, bfc.y})
-	lc.rootLayer.addFloat(cur)
+	lc.layer().addFloat(cur)
 	cur.floated.manager = fm
 	cur.calcCanvasLocation()
 	cur.calcChildLocations()
@@ -315,6 +315,7 @@ func layoutFloated(lc *LayoutContext, currentLine, block *Box, avail int, pendin
 	marker := lc.markerData
 	lc.markerData = nil
 	block.containingBlk = currentLine.parent
+	block.containingLayer = currentLine.containingLayer
 	block.staticEquivalent = currentLine
 	if pending != nil {
 		block.y = currentLine.y + block.floated.marginFromSibling
@@ -362,6 +363,7 @@ func positionFloatOnPage(lc *LayoutContext, currentLine, block *Box, movedVertic
 
 func resetAndFloatBlock(lc *LayoutContext, currentLine, block *Box) {
 	block.reset(lc)
+	block.containingLayer = currentLine.containingLayer
 	block.layoutBox(lc)
 	lc.bfc().fm.floatBox(lc, lc.bfc(), block)
 }
