@@ -78,7 +78,9 @@ type block struct {
 	bBefore, bAfter         brk
 	orphans, widows         int
 	minH                    float64
-	fixedH                  bool // minH is an exact height (content is clipped)
+	fixedH                  bool // minH is an exact height
+	clipH                   bool // ... and content overflowing it is clipped (overflow hidden/scroll/error-if-overflow)
+	noInset                 bool // children start at the border box origin (absolutely positioned container, as in FOP)
 	displayAlign            string
 	overlays                []overlay
 	ids                     []string
@@ -340,6 +342,9 @@ func (b *block) render(r *renderCtx, ox, y float64) {
 	r.drawBlockDecor(b, x, y, h)
 	cx := x + b.b[3].w + b.p[3]
 	cy := y + b.topDeco()
+	if b.noInset {
+		cx, cy = x, y
+	}
 	if free := h - nat; free > 0 {
 		switch b.displayAlign {
 		case "center":
@@ -348,7 +353,7 @@ func (b *block) render(r *renderCtx, ox, y float64) {
 			cy += free
 		}
 	}
-	if b.fixedH {
+	if b.fixedH && b.clipH {
 		r.clipStart(x, y, b.width, h)
 		defer r.clipEnd()
 	}

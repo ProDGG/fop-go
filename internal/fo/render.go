@@ -52,6 +52,8 @@ func (r *renderCtx) registerID(id string, y float64) {
 	if _, ok := r.e.ids[id]; !ok {
 		r.e.ids[id] = idInfo{page: r.pageIdx, pageNum: r.pageNum, y: r.pageH - y + 2}
 	}
+	// page-number-citation-last refers to the last page the id appears on
+	r.e.ids[id+"\x00last"] = idInfo{page: r.pageIdx, pageNum: r.pageNum}
 }
 
 func (r *renderCtx) addMarkers(ms []*markerDef) {

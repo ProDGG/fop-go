@@ -35,7 +35,9 @@ def baselines_by_page(path):
     import baselines as bl
     res = []
     for c in bl.content(path):
-        res.append(sorted({(round(y, 2), sz) for x, y, sz, m in bl.run(c, 0)}, reverse=True))
+        r = sorted({(round(y, 2), sz) for x, y, sz, m in bl.run(c, 0)}, reverse=True)
+        if r:  # skip non-page streams (fonts, images)
+            res.append(r)
     return res
 
 def main():

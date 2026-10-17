@@ -316,6 +316,7 @@ func lineMetrics(strut *textStyle, items []lineItem) (h, base float64) {
 			lineFollow = max(lineFollow, d-rise)
 		case itImage:
 			lineLead = max(lineLead, mpt(it.img.h+it.rise))
+			lineFollow = max(lineFollow, mpt(-it.rise))
 		case itLeader:
 			if it.lead != nil && it.lead.pattern == "rule" {
 				lineLead = max(lineLead, mpt(it.lead.thickness))

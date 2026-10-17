@@ -505,7 +505,9 @@ func (lc *lctx) findMarker(c *Node) *Node {
 			break
 		}
 	}
-	if found == nil && lc.carry != nil && (pos == "" || pos == "first-including-carryover" || pos == "last-ending-within-page" || pos == "last-starting-within-page") {
+	// AbstractPageSequenceLayoutManager.resolveRetrieveMarker: unless the retrieve
+	// boundary is "page", earlier pages are searched (last-ending-within-page)
+	if found == nil && lc.carry != nil && c.Get("retrieve-boundary") != "page" {
 		found = lc.carry[class]
 	}
 	return found
@@ -626,14 +628,16 @@ func (lc *lctx) layoutBlockContainer(n *Node) vitem {
 	S, E := lc.indents(n, b)
 	Sc, Ec := S, E // indent property values inherited by the container's children
 	// explicit width narrows the container
+	// width and height of a block-container are content dimensions in FOP
+	deco := b.p[3] + b.b[3].w + b.p[1] + b.b[1].w
 	if w, ok := lc.length(n, "width", cw); ok {
-		b.width = w
-		E = lc.refW - S - (w - b.p[3] - b.b[3].w - b.p[1] - b.b[1].w)
+		b.width = w + deco
+		E = lc.refW - S - w
 	} else if w, ok := lc.length(n, "inline-progression-dimension", cw); ok {
-		b.width = w
-		E = lc.refW - S - (w - b.p[3] - b.b[3].w - b.p[1] - b.b[1].w)
+		b.width = w + deco
+		E = lc.refW - S - w
 	}
-	inner := b.width - b.p[3] - b.b[3].w - b.p[1] - b.b[1].w
+	inner := b.width - deco
 	if inner < 1 {
 		inner = 1
 	}
@@ -646,8 +650,9 @@ func (lc *lctx) layoutBlockContainer(n *Node) vitem {
 	b.children = bb.items
 	b.markers = bb.markers
 	if h, ok := lc.length(n, "height", cw); ok {
-		b.minH = h
-		b.fixedH = n.Props["overflow"] == "hidden" || n.Props["overflow"] == "error-if-overflow"
+		b.minH = h + b.topDeco() + b.botDeco()
+		b.fixedH = true
+		b.clipH = needClip(n)
 	} else if h, ok := lc.length(n, "block-progression-dimension.minimum", cw); ok {
 		b.minH = h
 	} else if h, ok := lc.length(n, "block-progression-dimension", cw); ok {
@@ -660,6 +665,15 @@ func (lc *lctx) layoutBlockContainer(n *Node) vitem {
 	}
 	b.fillGaps()
 	return b
+}
+
+// needClip: overflow values that clip the content of a block-container.
+func needClip(n *Node) bool {
+	switch n.Get("overflow") {
+	case "hidden", "scroll", "error-if-overflow":
+		return true
+	}
+	return false
 }
 
 func (lc *lctx) orientation(n *Node) int {
@@ -734,9 +748,10 @@ func (lc *lctx) layoutAbsolute(n *Node, fixed bool) vitem {
 		width = get("inline-progression-dimension", regW)
 	}
 	var w float64
+	deco := b.p[3] + b.b[3].w + b.p[1] + b.b[1].w
 	switch {
 	case width != nil:
-		w = *width
+		w = *width + deco // an explicit width is the content width
 	case left != nil && right != nil:
 		w = regW - *left - *right
 	case left != nil:
@@ -767,7 +782,8 @@ func (lc *lctx) layoutAbsolute(n *Node, fixed bool) vitem {
 	}
 	b.width = w
 	b.left = 0
-	inner := w - b.p[3] - b.b[3].w - b.p[1] - b.b[1].w
+	b.noInset = true
+	inner := w - deco
 	lc2 := &lctx{e: lc.e, refW: math.Max(inner, 1), refH: regH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
 	bb := lc2.newBlockBuilder(n)
 	bb.process(n.Children)
@@ -776,8 +792,9 @@ func (lc *lctx) layoutAbsolute(n *Node, fixed bool) vitem {
 	b.fillGaps()
 	b.spB, b.spA = nil, nil
 	if h := get("height", regH); h != nil {
-		b.minH = *h
+		b.minH = *h + b.topDeco() + b.botDeco()
 		b.fixedH = true
+		b.clipH = needClip(n)
 	} else if h := get("block-progression-dimension", regH); h != nil {
 		b.minH = *h
 	}
@@ -895,7 +912,108 @@ func (lc *lctx) graphicAtom(c *Node) (atom, bool) {
 		box.clip = true
 	}
 	st := e.styleFor(c)
-	return atom{kind: aBox, w: box.w, img: box, style: st, rise: 0}, true
+	return atom{kind: aBox, w: box.w, img: box, style: st, rise: e.graphicRise(c, box.h)}, true
+}
+
+// graphicRise is the height of the bottom of an inline graphic above the line's
+// baseline, following AlignmentContext (altitude = height, depth = 0, x-height =
+// height for a graphic; the parent's baseline table supplies the target).
+func (e *Engine) graphicRise(c *Node, h float64) float64 {
+	var pst *textStyle
+	if c.Parent != nil {
+		pst = e.styleFor(c.Parent)
+	}
+	if pst == nil || pst.ft == nil {
+		return 0
+	}
+	va := c.Props["vertical-align"]
+	ab, aa, bsv := c.Props["alignment-baseline"], c.Props["alignment-adjust"], c.Props["baseline-shift"]
+	switch va {
+	case "auto", "baseline", "before-edge", "text-before-edge", "middle", "central", "after-edge",
+		"text-after-edge", "ideographic", "alphabetic", "hanging", "mathematical":
+		if ab == "" {
+			ab = va
+		}
+		if aa == "" {
+			aa = va
+		}
+		if bsv == "" && va == "baseline" {
+			bsv = va
+		}
+	case "sub", "super":
+		if bsv == "" {
+			bsv = va
+		}
+	default:
+		if va != "" && bsv == "" && va != "top" && va != "bottom" && va != "text-top" && va != "text-bottom" {
+			bsv = va
+		}
+	}
+	alt, dep := pst.ascDescMpt()
+	altF, depF := float64(alt)/1000, -float64(dep)/1000
+	xh := float64(pst.xHeightMpt()) / 1000
+	// offset of a baseline above the parent's alphabetic baseline
+	parentBase := func(id string) float64 {
+		switch id {
+		case "text-before-edge", "before-edge":
+			return altF
+		case "middle":
+			return xh / 2
+		case "central":
+			return (altF-depF)/2 + depF
+		case "hanging":
+			return math.Round(altF*1000*0.8) / 1000
+		case "mathematical":
+			return math.Round(altF*1000*0.5) / 1000
+		case "ideographic", "text-after-edge", "after-edge":
+			return depF
+		}
+		return 0
+	}
+	// the graphic's own table: altitude h, depth 0, x-height h
+	ownBase := func(id string) float64 {
+		switch id {
+		case "text-before-edge", "before-edge":
+			return h
+		case "middle", "central", "mathematical":
+			return h / 2
+		case "hanging":
+			return math.Round(h*1000*0.8) / 1000
+		}
+		return 0
+	}
+	if ab == "" || ab == "auto" {
+		ab = "alphabetic"
+	}
+	if ab == "baseline" {
+		ab = "alphabetic"
+	}
+	ap := h - ownBase(ab) // alignment-adjust="auto"
+	switch aa {
+	case "", "auto":
+	case "baseline":
+		ap = h
+	case "before-edge", "text-before-edge", "middle", "central", "after-edge", "text-after-edge",
+		"ideographic", "alphabetic", "hanging", "mathematical":
+		ap = h - ownBase(aa)
+	default:
+		if v, ok := e.parseLength(c, aa, pst.lh); ok {
+			ap = h + v
+		}
+	}
+	shift := 0.0
+	switch bsv {
+	case "", "baseline":
+	case "sub":
+		shift = -h / 2
+	case "super":
+		shift = xh
+	default:
+		if v, ok := e.parseLength(c, bsv, pst.lh); ok {
+			shift = v
+		}
+	}
+	return parentBase(ab) + shift + ap - h
 }
 
 func (lc *lctx) parseCW(c *Node, spec string, intrinsic, cw float64) (float64, bool) {

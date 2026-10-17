@@ -417,6 +417,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 			total := gap + it.height()
 			cur := it
 			j := 0
+			lastGap := gap // gap before the last item of the chain
 			for j+1 < len(q) && laidOut(j+1) {
 				nx := q[j+1].item
 				if !(cur.keepNext() || nx.keepPrev()) {
@@ -425,11 +426,21 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 				if !q[j+1].noBrk && maxBrk(q[j+1].brk, nx.breakBefore()) != brkNone {
 					break
 				}
-				total += resolveSpaces(concatSp(cur.afterSp(), nx.beforeSp())) + nx.height()
+				lastGap = resolveSpaces(concatSp(cur.afterSp(), nx.beforeSp()))
+				total += lastGap + nx.height()
 				cur = nx
 				j++
 			}
-			if y+total > colH+eps && total <= colH+eps {
+			// the last block of the chain may still be split (keep-with-next only
+			// forbids a break right after the preceding block)
+			chainFits := y+total <= colH+eps
+			if !chainFits && j > 0 && y+total-cur.height()-lastGap <= colH+eps {
+				used := y + total - cur.height()
+				if hd, _ := cur.split(colH-used, false); hd != nil {
+					chainFits = true
+				}
+			}
+			if !chainFits && total <= colH+eps {
 				if col+1 < ncols {
 					col++
 					y = 0
