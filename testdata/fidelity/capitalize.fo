@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set><fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm"><fo:region-body/></fo:simple-page-master></fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block text-transform="capitalize">A: hello world foo-bar it's o'neil</fo:block>
+<fo:block>B: upper <fo:inline text-transform="capitalize">cap words</fo:inline> case</fo:block>
+<fo:block text-transform="uppercase">C: upper <fo:inline text-transform="capitalize">cap words</fo:inline> case</fo:block>
+<fo:block><fo:inline text-transform="capitalize">D: cap words</fo:inline> after</fo:block>
+<fo:block text-transform="capitalize">E: <fo:inline font-weight="bold">bold start</fo:inline> and<fo:inline font-weight="bold">glued</fo:inline> x</fo:block>
+<fo:block text-transform="lowercase">F: LOWER <fo:inline text-transform="none">KEEP</fo:inline> CASE</fo:block>
+</fo:flow></fo:page-sequence></fo:root>

@@ -240,6 +240,7 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 		tw = v
 	}
 	b.width = tw + deco
+	b.fixedW = true
 
 	// ---- columns ----
 	var cols []*colDef

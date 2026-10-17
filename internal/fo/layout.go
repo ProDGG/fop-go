@@ -383,7 +383,7 @@ func (bb *blockBuilder) node(c *Node) {
 	e := lc.e
 	switch c.Name {
 	case "#text":
-		ib.addText(c, c.Text)
+		ib.addFOText(c, c.Text)
 	case "block", "block-container", "table", "table-and-caption", "list-block":
 		bb.flush()
 		if it := lc.layoutBlockLevel(c); it != nil {
@@ -632,9 +632,11 @@ func (lc *lctx) layoutBlockContainer(n *Node) vitem {
 	deco := b.p[3] + b.b[3].w + b.p[1] + b.b[1].w
 	if w, ok := lc.length(n, "width", cw); ok {
 		b.width = w + deco
+		b.fixedW = true
 		E = lc.refW - S - w
 	} else if w, ok := lc.length(n, "inline-progression-dimension", cw); ok {
 		b.width = w + deco
+		b.fixedW = true
 		E = lc.refW - S - w
 	}
 	inner := b.width - deco

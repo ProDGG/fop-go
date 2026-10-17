@@ -88,6 +88,7 @@ type block struct {
 
 	first, last bool
 	forceH      float64
+	fixedW      bool // width does not follow the reference area (explicit width, tables)
 }
 
 func newBlock() *block { return &block{first: true, last: true, orphans: 2, widows: 2} }
@@ -416,4 +417,48 @@ func (b *block) fillGaps() {
 	} else {
 		b.spA = concatSp(last, b.spA)
 	}
+}
+
+// reflow adapts a continuation fragment to a reference area whose width differs
+// by delta from the one it was laid out for: paragraph lines are broken again,
+// nested blocks follow; fixed-width content is left alone.
+func (b *block) reflow(delta float64) {
+	if b.fixedW || delta == 0 {
+		return
+	}
+	b.width += delta
+	var out []vitem
+	var gaps []float64
+	for i := 0; i < len(b.children); {
+		c := b.children[i]
+		if lb, ok := c.(*lineBox); ok && lb.src != nil {
+			j := i + 1
+			for j < len(b.children) {
+				if l2, ok := b.children[j].(*lineBox); ok && l2.src != nil && l2.paraID == lb.paraID {
+					j++
+					continue
+				}
+				break
+			}
+			if nl := lb.src.reflowLines(lb, delta); nl != nil {
+				for k, l := range nl {
+					out = append(out, l)
+					g := 0.0
+					if k == 0 {
+						g = b.gaps[i]
+					}
+					gaps = append(gaps, g)
+				}
+				i = j
+				continue
+			}
+		}
+		if cb, ok := c.(*block); ok {
+			cb.reflow(delta)
+		}
+		out = append(out, c)
+		gaps = append(gaps, b.gaps[i])
+		i++
+	}
+	b.children, b.gaps = out, gaps
 }

@@ -106,6 +106,19 @@ type lineBox struct {
 	paraID  int
 	idx     int
 	nlines  int
+
+	// source paragraph, kept so that a continuation can be re-broken when the
+	// next page is narrower or wider (FOP restarts layout when the IPD changes)
+	src       *paraSrc
+	atomStart int
+	act       []*inlineDecor // inline decorations open at the start of the line
+}
+
+type paraSrc struct {
+	lc    *lctx
+	atoms []atom
+	po    paraOpts
+	first bool // the paragraph's first line takes text-indent
 }
 
 // ---------- building atoms from text ----------
@@ -122,6 +135,7 @@ type inlineBuilder struct {
 	pendStyle *textStyle
 	atStart   bool // no content yet on the current line/paragraph
 	lastGlue  bool
+	foTexts   [][]rune // raw text nodes of this block so far (FOText.prevFOTextThisBlock chain)
 }
 
 func newInlineBuilder(lc *lctx) *inlineBuilder {
@@ -154,13 +168,29 @@ func (ib *inlineBuilder) emitGlue(st *textStyle) {
 	ib.atoms = append(ib.atoms, ib.lc.e.spaceAtom(st))
 }
 
+// addFOText adds a character data node; text-transform follows FOText.textTransform,
+// including its look-behind into the previous text nodes of the block.
+func (ib *inlineBuilder) addFOText(n *Node, text string) {
+	st := ib.lc.e.styleFor(n)
+	raw := []rune(text)
+	t := text
+	if st.ft != nil {
+		t = fopTransform(raw, st.upper, ib.foTexts)
+	}
+	ib.foTexts = append(ib.foTexts, raw)
+	ib.addTextRaw(n, t)
+}
+
 func (ib *inlineBuilder) addText(n *Node, text string) {
+	ib.addTextRaw(n, applyTransform(text, ib.lc.e.styleFor(n).upper))
+}
+
+func (ib *inlineBuilder) addTextRaw(n *Node, text string) {
 	e := ib.lc.e
 	st := e.styleFor(n)
 	if st.ft == nil {
 		return
 	}
-	text = applyTransform(text, st.upper)
 	var word strings.Builder
 	flush := func(breakAfter bool) {
 		if word.Len() == 0 {

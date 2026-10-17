@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/ProDGG/fop-go/internal/font"
 )
@@ -334,6 +335,71 @@ func applyTransform(s string, mode int) string {
 		return sb.String()
 	}
 	return s
+}
+
+// fopTransform ports FOText.textTransform. prev holds the raw text nodes that
+// precede this one in the block; FOP's getRelativeCharInBlock looks one character
+// too far back when it crosses into the previous node (diff = len + offset - 1).
+func fopTransform(rs []rune, mode int, prev [][]rune) string {
+	if mode == 0 {
+		return string(rs)
+	}
+	out := make([]rune, len(rs))
+	rel := func(i, offset int) rune {
+		ci := i + offset
+		if ci >= 0 && ci < len(rs) {
+			return rs[ci]
+		}
+		if offset > 0 {
+			return 0
+		}
+		remaining := ci
+		for k := len(prev) - 1; k >= 0; k-- {
+			diff := len(prev[k]) + remaining - 1
+			if diff >= 0 {
+				return prev[k][diff]
+			}
+			remaining += diff
+		}
+		return 0
+	}
+	wordChar := func(r rune) int { // 1 word char, 0 not, 2 maybe
+		switch {
+		case r == '\'' || r == 0x2019:
+			return 2
+		case r == '-':
+			return 1
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Nl, r) || unicode.Is(unicode.No, r),
+			unicode.Is(unicode.Mn, r), unicode.Is(unicode.Mc, r), unicode.Is(unicode.Pc, r), unicode.Is(unicode.Sc, r),
+			unicode.Is(unicode.Sk, r), unicode.Is(unicode.So, r), unicode.Is(unicode.Lm, r):
+			return 1
+		}
+		return 0
+	}
+	startOfWord := func(i int) bool {
+		switch wordChar(rel(i, -1)) {
+		case 1:
+			return false
+		case 0:
+			return true
+		}
+		return wordChar(rel(i, -2)) != 1
+	}
+	for i, r := range rs {
+		switch mode {
+		case 1:
+			out[i] = unicode.ToUpper(r)
+		case 2:
+			out[i] = unicode.ToLower(r)
+		default:
+			if startOfWord(i) {
+				out[i] = unicode.ToTitle(r)
+			} else {
+				out[i] = r
+			}
+		}
+	}
+	return string(out)
 }
 
 // newTestEngine builds an engine with default fonts (used by tests).

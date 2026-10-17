@@ -2,6 +2,7 @@ package fo
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 type qEntry struct {
 	node  *Node
 	item  vitem
+	w     float64 // column width the item was laid out for
 	brk   brk
 	noBrk bool
 }
@@ -369,6 +371,12 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 	var prev vitem
 	laidOut := func(i int) bool {
 		if q[i].item != nil {
+			if d := colW - q[i].w; q[i].w != 0 && math.Abs(d) > 0.001 {
+				if b, ok := q[i].item.(*block); ok {
+					b.reflow(d)
+				}
+			}
+			q[i].w = colW
 			return true
 		}
 		it := lc.layoutBlockLevel(q[i].node)
@@ -376,6 +384,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 			return false
 		}
 		q[i].item = it
+		q[i].w = colW
 		return true
 	}
 	for len(q) > 0 {
@@ -386,7 +395,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 		ent := q[0]
 		it := ent.item
 		if h, t, k := it.forcedSplit(); h != nil {
-			ins := []qEntry{{item: h, brk: ent.brk, noBrk: ent.noBrk}, {item: t, brk: k}}
+			ins := []qEntry{{item: h, brk: ent.brk, noBrk: ent.noBrk, w: ent.w}, {item: t, brk: k, w: ent.w}}
 			q = append(ins, q[1:]...)
 			continue
 		}
@@ -466,7 +475,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 		head, tail := it.split(avail, atTop)
 		if head != nil {
 			placed = append(placed, placedItem{head, col, y + gap})
-			q[0] = qEntry{item: tail}
+			q[0] = qEntry{item: tail, w: colW}
 			if col+1 < ncols {
 				col++
 				y = 0

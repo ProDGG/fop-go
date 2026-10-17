@@ -65,7 +65,7 @@ func spaceElements(al string, atomIdx, wm, st, sh int, preserved bool) []kelem {
 
 // hyphenElements mirrors TextLayoutManager.addElementsForAHyphen for the case
 // without line start/end border or padding (unflagged break).
-func hyphenElements(al string, widthIfBreak, widthIfNoBreak int, atomIdx int, flagged bool) []kelem {
+func hyphenElements(al string, widthIfBreak, widthIfNoBreak int, atomIdx int, flagged bool, centerW int) []kelem {
 	pen := softHyphenPen
 	if flagged {
 		pen = kFlaggedPen
@@ -78,9 +78,13 @@ func hyphenElements(al string, widthIfBreak, widthIfNoBreak int, atomIdx int, fl
 	}
 	switch al {
 	case "center":
+		// FOP quirk: the centered case always uses the width of the hyphen glyph for the
+		// penalty, even for an explicit hyphen character where nothing is added on a break
+		cp := penEl(centerW, pen, flagged, atomIdx, true)
+		cp.hyphen = widthIfBreak > 0
 		els = append(els,
 			penEl(0, kInfinite, false, -1, true), glueEl(0, 3*defaultSpaceW, 0, -1, true),
-			hy(), glueEl(0, -6*defaultSpaceW, 0, -1, false), boxEl(0, -1, true), penEl(0, kInfinite, false, -1, true),
+			cp, glueEl(0, -6*defaultSpaceW, 0, -1, false), boxEl(0, -1, true), penEl(0, kInfinite, false, -1, true),
 			glueEl(0, 3*defaultSpaceW, 0, -1, true))
 	case "start", "end":
 		els = append(els,
@@ -106,6 +110,19 @@ type lineRec struct {
 
 // paragraphLines breaks one paragraph (atoms without aBreak) into lines.
 func (lc *lctx) paragraphLines(atoms []atom, po paraOpts, firstInBlock bool, paraID *int) []*lineBox {
+	lines := lc.breakParagraph(atoms, po, firstInBlock, nil, 0)
+	if len(lines) > 0 {
+		src := &paraSrc{lc: lc, atoms: atoms, po: po, first: firstInBlock}
+		for _, l := range lines {
+			l.src = src
+		}
+	}
+	return lines
+}
+
+// breakParagraph breaks atoms into lines. active lists the inline decorations open
+// at the start; off is the index of atoms[0] in the paragraph's full atom list.
+func (lc *lctx) breakParagraph(atoms []atom, po paraOpts, firstInBlock bool, active0 []*inlineDecor, off int) []*lineBox {
 	textAlign, textAlignLast := po.align, po.alignLast
 	// effective alignment used when generating elements
 	eff := textAlign
@@ -136,7 +153,7 @@ func (lc *lctx) paragraphLines(atoms []atom, po paraOpts, firstInBlock bool, par
 				els = append(els, boxEl(w, i, false))
 			}
 			if a.breakAfter {
-				els = append(els, hyphenElements(eff, 0, ls, -1, false)...)
+				els = append(els, hyphenElements(eff, 0, ls, -1, false, runsWidthMpt(lc.e.measure(a.style, "-")))...)
 			}
 		case aGlue:
 			wm := mpt(a.w)
@@ -155,7 +172,7 @@ func (lc *lctx) paragraphLines(atoms []atom, po paraOpts, firstInBlock bool, par
 		case aZW:
 			els = append(els, spaceElements(eff, -1, 0, 0, 0, true)...)
 		case aSoftHyphen:
-			els = append(els, hyphenElements(eff, mpt(a.hyphenW), 0, i, false)...)
+			els = append(els, hyphenElements(eff, mpt(a.hyphenW), 0, i, false, mpt(a.hyphenW))...)
 		case aBox:
 			els = append(els, boxEl(mpt(a.w), i, false))
 		case aOpen, aClose:
@@ -225,7 +242,7 @@ func (lc *lctx) paragraphLines(atoms []atom, po paraOpts, firstInBlock bool, par
 		recs[i], recs[j] = recs[j], recs[i]
 	}
 	var lines []*lineBox
-	var active []*inlineDecor
+	active := append([]*inlineDecor(nil), active0...)
 	for _, rc := range recs {
 		align := textAlign
 		if rc.line >= total {
@@ -246,13 +263,22 @@ func (lc *lctx) paragraphLines(atoms []atom, po paraOpts, firstInBlock bool, par
 		if align == "justify" || (diff < 0 && -diff <= rc.availShrink) {
 			ratio = rc.ratio
 		}
-		lines = append(lines, lc.assembleLine(els, atoms, rc, ratio, float64(startIndent)/1000, po, &active))
+		act0 := append([]*inlineDecor(nil), active...)
+		lb := lc.assembleLine(els, atoms, rc, ratio, float64(startIndent)/1000, po, &active)
+		lb.act = act0
+		lb.atomStart = off + len(atoms)
+		for k := rc.first; k < rc.last && k < len(els); k++ {
+			if els[k].isBox() && !els[k].aux && els[k].atom >= 0 {
+				lb.atomStart = off + els[k].atom
+				break
+			}
+		}
+		lines = append(lines, lb)
 	}
 	for i, l := range lines {
 		l.idx = i
 		l.nlines = len(lines)
 	}
-	_ = paraID
 	return lines
 }
 
@@ -327,3 +353,29 @@ func absInt(a int) int {
 }
 
 var _ = math.Abs
+
+func runsWidthMpt(rs []textRun) int { return mpt(runsWidth(rs)) }
+
+// reflowLines re-breaks the paragraph from the start of line l0 with a width
+// changed by delta; the new lines continue l0's numbering.
+func (ps *paraSrc) reflowLines(l0 *lineBox, delta float64) []*lineBox {
+	po := ps.po
+	po.width += delta
+	start := l0.atomStart
+	if start > len(ps.atoms) {
+		return nil
+	}
+	first := ps.first && l0.idx == 0
+	lines := ps.lc.breakParagraph(ps.atoms[start:], po, first, l0.act, start)
+	if len(lines) == 0 {
+		return nil
+	}
+	src := &paraSrc{lc: ps.lc, atoms: ps.atoms, po: po, first: ps.first}
+	for i, l := range lines {
+		l.src = src
+		l.paraID = l0.paraID
+		l.idx = l0.idx + i
+		l.nlines = l0.idx + len(lines)
+	}
+	return lines
+}
