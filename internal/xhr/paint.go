@@ -28,13 +28,14 @@ type painter struct {
 	tx, ty float64 // translation in dots
 	clip   Rect    // clip in document coordinates
 
-	fonts    map[*FontDesc]*pdf.Font
-	imgs     map[*Image]*pdf.Image
-	curPage  *PageBox
-	pageNo   int
-	pageCnt  int
-	layer    *Layer
-	inMargin bool // painting a page margin box
+	fonts     map[*FontDesc]*pdf.Font
+	imgs      map[*Image]*pdf.Image
+	curPage   *PageBox
+	pageNo    int
+	pageCnt   int
+	layer     *Layer
+	clipStack []Rect
+	inMargin  bool // painting a page margin box
 
 	linkSeen map[string]bool
 	color    RGB
@@ -114,7 +115,15 @@ func (p *painter) paintPage(pb *PageBox, no, count int) {
 	cy := float64(pb.mbp(Top))
 	cw := float64(pb.contentWidth())
 	ch := float64(pb.contentHeight() - 1)
-	p.page.Rect(p.px0(cx), p.py0(cy+ch), cw/p.dpp, ch/p.dpp)
+	// the clip path as Flying Saucer / iText emit it (a closed polygon from the top-left)
+	x0, x1 := p.px0(cx), p.px0(cx+cw)
+	yt, yb := p.py0(cy), p.py0(cy+ch)
+	p.page.MoveTo(x0, yt)
+	p.page.LineTo(x1, yt)
+	p.page.LineTo(x1, yb)
+	p.page.LineTo(x0, yb)
+	p.page.LineTo(x0, yt)
+	p.page.ClosePath()
 	p.page.Clip()
 	p.tx, p.ty = float64(left), float64(top)
 	p.clip = Rect{0, pb.paintingTop, pb.contentWidth(), pb.contentHeight() - 1}
@@ -156,7 +165,10 @@ func (h *rangeHelper) push(i int) {
 		r := h.ranges[h.idx]
 		h.stack = append(h.stack, r)
 		h.p.page.Save()
-		h.p.clipRect(r.box.paddingEdge(r.box.absX, r.box.absY))
+		pe := r.box.paddingEdge(r.box.absX, r.box.absY)
+		h.p.clipRect(pe)
+		h.p.clipStack = append(h.p.clipStack, h.p.clip)
+		h.p.clip = intersectRect(h.p.clip, pe)
 		h.idx++
 	}
 }
@@ -165,6 +177,8 @@ func (h *rangeHelper) pop(i int) {
 	for len(h.stack) > 0 && h.stack[len(h.stack)-1].end == i {
 		h.p.page.Restore()
 		h.p.fillSet = false
+		h.p.clip = h.p.clipStack[len(h.p.clipStack)-1]
+		h.p.clipStack = h.p.clipStack[:len(h.p.clipStack)-1]
 		h.stack = h.stack[:len(h.stack)-1]
 	}
 }
@@ -383,7 +397,7 @@ func (p *painter) paintRootBackground(master *Box) {
 	}
 	if c := bgBox.Style.Color("background-color"); c != nil {
 		pb := p.curPage
-		p.fillRectDots(c, 0, pb.paintingTop, pb.contentWidth(), pb.contentHeight())
+		p.fillBackground(c, Rect{0, pb.paintingTop, pb.contentWidth(), pb.contentHeight()})
 	}
 }
 
@@ -500,10 +514,35 @@ func (p *painter) paintCellBackgroundStack(cell *Box) {
 	p.paintBackground0(cell.Style, bounds, bounds)
 }
 
+// fillBackground is AbstractOutputDevice.paintBackground's colour fill: the
+// border box intersected with the current clip, as the path of a java.awt.geom.Area.
+func (p *painter) fillBackground(c *RGB, r Rect) {
+	x0, y0 := r.X, r.Y
+	x1, y1 := r.X+r.W, r.Y+r.H
+	cl := p.clip
+	if cl.X > x0 {
+		x0 = cl.X
+	}
+	if cl.Y > y0 {
+		y0 = cl.Y
+	}
+	if cl.X+cl.W < x1 {
+		x1 = cl.X + cl.W
+	}
+	if cl.Y+cl.H < y1 {
+		y1 = cl.Y + cl.H
+	}
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+	fx0, fy0, fx1, fy1 := float64(x0), float64(y0), float64(x1), float64(y1)
+	p.fillPoly(c, [][2]float64{{fx0, fy0}, {fx0, fy1}, {fx1, fy1}, {fx1, fy0}})
+}
+
 func (p *painter) paintBackground0(st *Style, bounds, container Rect) {
 	bg := st.Color("background-color")
 	if bg != nil {
-		p.fillRectDots(bg, bounds.X, bounds.Y, bounds.W, bounds.H)
+		p.fillBackground(bg, bounds)
 	}
 	if st.first("background-image").Kind == VURI {
 		p.paintBackgroundImage(st, bounds, container)
@@ -1154,3 +1193,27 @@ func (p *painter) localTargetArea(b *Box) [4]float64 {
 }
 
 var _ = font.Parse
+
+func intersectRect(a, b Rect) Rect {
+	x0, y0 := a.X, a.Y
+	if b.X > x0 {
+		x0 = b.X
+	}
+	if b.Y > y0 {
+		y0 = b.Y
+	}
+	x1, y1 := a.X+a.W, a.Y+a.H
+	if b.X+b.W < x1 {
+		x1 = b.X + b.W
+	}
+	if b.Y+b.H < y1 {
+		y1 = b.Y + b.H
+	}
+	if x1 < x0 {
+		x1 = x0
+	}
+	if y1 < y0 {
+		y1 = y0
+	}
+	return Rect{x0, y0, x1 - x0, y1 - y0}
+}
