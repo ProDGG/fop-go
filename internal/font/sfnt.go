@@ -439,3 +439,6 @@ func (f *Font) computeFOPMetrics() {
 	f.Asc1000, f.Desc1000 = conv(asc), conv(desc)
 	f.XHeight1000, f.Cap1000 = conv(f.XHeight), conv(f.CapHeight)
 }
+
+// Table returns the raw bytes of an sfnt table (nil if absent).
+func (f *Font) Table(tag string) []byte { return f.tables[tag] }

@@ -7,6 +7,7 @@ import (
 	"compress/zlib"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +36,10 @@ type Document struct {
 	imgBy  map[string]*Image
 
 	shadings []*Shading
+
+	// ITextNumbers formats numbers like iText 5's ByteBuffer.formatDouble
+	// (two decimals, five below one).
+	ITextNumbers bool
 }
 
 // NewDocument creates an empty document.
@@ -136,6 +141,58 @@ func Num(f float64) string {
 	return s
 }
 
+func (d *Document) num(f float64) string {
+	if d != nil && d.ITextNumbers {
+		return itextNum(f)
+	}
+	return Num(f)
+}
+
+func (p *Page) n(f float64) string { return p.doc.num(f) }
+
+// itextNum mirrors com.itextpdf.text.pdf.ByteBuffer.formatDouble.
+func itextNum(d float64) string {
+	if math.Abs(d) < 0.000015 {
+		return "0"
+	}
+	neg := false
+	if d < 0 {
+		neg = true
+		d = -d
+	}
+	var sb strings.Builder
+	if neg {
+		sb.WriteByte('-')
+	}
+	switch {
+	case d < 1.0:
+		d += 0.000005
+		if d >= 1 {
+			sb.WriteByte('1')
+			return sb.String()
+		}
+		v := int(d * 100000)
+		sb.WriteString("0.")
+		s := fmt.Sprintf("%05d", v)
+		sb.WriteString(strings.TrimRight(s, "0"))
+	case d <= 32767:
+		d += 0.005
+		v := int(d * 100)
+		sb.WriteString(strconv.Itoa(v / 100))
+		if f := v % 100; f != 0 {
+			if f%10 == 0 {
+				fmt.Fprintf(&sb, ".%d", f/10)
+			} else {
+				fmt.Fprintf(&sb, ".%02d", f)
+			}
+		}
+	default:
+		d += 0.5
+		sb.WriteString(strconv.FormatInt(int64(d), 10))
+	}
+	return sb.String()
+}
+
 func (p *Page) op(format string, args ...interface{}) {
 	fmt.Fprintf(&p.buf, format, args...)
 	p.buf.WriteByte('\n')
@@ -149,17 +206,17 @@ func (p *Page) Restore() { p.buf.WriteString("Q\n") }
 
 // Transform concatenates a matrix.
 func (p *Page) Transform(a, b, c, d, e, f float64) {
-	p.op("%s %s %s %s %s %s cm", Num(a), Num(b), Num(c), Num(d), Num(e), Num(f))
+	p.op("%s %s %s %s %s %s cm", p.n(a), p.n(b), p.n(c), p.n(d), p.n(e), p.n(f))
 }
 
 // FillRGB sets the non-stroking colour.
-func (p *Page) FillRGB(r, g, b float64) { p.op("%s %s %s rg", Num(r), Num(g), Num(b)) }
+func (p *Page) FillRGB(r, g, b float64) { p.op("%s %s %s rg", p.n(r), p.n(g), p.n(b)) }
 
 // StrokeRGB sets the stroking colour.
-func (p *Page) StrokeRGB(r, g, b float64) { p.op("%s %s %s RG", Num(r), Num(g), Num(b)) }
+func (p *Page) StrokeRGB(r, g, b float64) { p.op("%s %s %s RG", p.n(r), p.n(g), p.n(b)) }
 
 // LineWidth sets the stroke width.
-func (p *Page) LineWidth(w float64) { p.op("%s w", Num(w)) }
+func (p *Page) LineWidth(w float64) { p.op("%s w", p.n(w)) }
 
 // Dash sets a dash pattern (nil = solid).
 func (p *Page) Dash(on, off float64) {
@@ -167,7 +224,7 @@ func (p *Page) Dash(on, off float64) {
 		p.op("[] 0 d")
 		return
 	}
-	p.op("[%s %s] 0 d", Num(on), Num(off))
+	p.op("[%s %s] 0 d", p.n(on), p.n(off))
 }
 
 // LineCap sets the line cap style (0 butt, 1 round, 2 square).
@@ -175,14 +232,14 @@ func (p *Page) LineCap(c int) { p.op("%d J", c) }
 
 // Rect appends a rectangle path (lower-left origin).
 func (p *Page) Rect(x, y, w, h float64) {
-	p.op("%s %s %s %s re", Num(x), Num(y), Num(w), Num(h))
+	p.op("%s %s %s %s re", p.n(x), p.n(y), p.n(w), p.n(h))
 }
 
 // MoveTo starts a subpath.
-func (p *Page) MoveTo(x, y float64) { p.op("%s %s m", Num(x), Num(y)) }
+func (p *Page) MoveTo(x, y float64) { p.op("%s %s m", p.n(x), p.n(y)) }
 
 // LineTo adds a line segment.
-func (p *Page) LineTo(x, y float64) { p.op("%s %s l", Num(x), Num(y)) }
+func (p *Page) LineTo(x, y float64) { p.op("%s %s l", p.n(x), p.n(y)) }
 
 // ClosePath closes the current subpath.
 func (p *Page) ClosePath() { p.buf.WriteString("h\n") }
@@ -195,7 +252,7 @@ func (p *Page) Stroke() { p.buf.WriteString("S\n") }
 
 // CurveTo adds a cubic Bezier segment.
 func (p *Page) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
-	p.op("%s %s %s %s %s %s c", Num(x1), Num(y1), Num(x2), Num(y2), Num(x3), Num(y3))
+	p.op("%s %s %s %s %s %s c", p.n(x1), p.n(y1), p.n(x2), p.n(y2), p.n(x3), p.n(y3))
 }
 
 // FillEO fills with the even-odd rule.
@@ -217,7 +274,7 @@ func (p *Page) EndPath() { p.buf.WriteString("n\n") }
 func (p *Page) LineJoin(j int) { p.op("%d j", j) }
 
 // MiterLimit sets the miter limit.
-func (p *Page) MiterLimit(m float64) { p.op("%s M", Num(m)) }
+func (p *Page) MiterLimit(m float64) { p.op("%s M", p.n(m)) }
 
 // DashArray sets an arbitrary dash pattern.
 func (p *Page) DashArray(a []float64, phase float64) {
@@ -230,14 +287,14 @@ func (p *Page) DashArray(a []float64, phase float64) {
 		if i > 0 {
 			sb.WriteByte(' ')
 		}
-		sb.WriteString(Num(v))
+		sb.WriteString(p.n(v))
 	}
-	p.op("[%s] %s d", sb.String(), Num(phase))
+	p.op("[%s] %s d", sb.String(), p.n(phase))
 }
 
 // SetAlpha sets the fill and stroke opacity through an ExtGState.
 func (p *Page) SetAlpha(fill, stroke float64) {
-	dict := fmt.Sprintf("<< /Type /ExtGState /ca %s /CA %s >>", Num(fill), Num(stroke))
+	dict := fmt.Sprintf("<< /Type /ExtGState /ca %s /CA %s >>", p.n(fill), p.n(stroke))
 	name := ""
 	for n, d := range p.gstates {
 		if d == dict {
@@ -303,7 +360,7 @@ func (p *Page) Text(f *Font, size, x, y float64, glyphs []Glyph) {
 		return
 	}
 	p.fonts[f] = true
-	p.op("BT /%s %s Tf %s %s Td", f.name, Num(size), Num(x), Num(y))
+	p.op("BT /%s %s Tf %s %s Td", f.name, p.n(size), p.n(x), p.n(y))
 	p.buf.WriteByte('[')
 	inStr := false
 	for _, g := range glyphs {
@@ -318,7 +375,7 @@ func (p *Page) Text(f *Font, size, x, y float64, glyphs []Glyph) {
 		if g.Extra != 0 {
 			p.buf.WriteByte('>')
 			inStr = false
-			fmt.Fprintf(&p.buf, "%s", Num(-g.Extra*1000/size))
+			fmt.Fprintf(&p.buf, "%s", p.n(-g.Extra*1000/size))
 		}
 	}
 	if inStr {
@@ -516,19 +573,19 @@ func (d *Document) Write(out io.Writer) error {
 		for _, a := range p.Annots {
 			var action string
 			if a.DestPage >= 0 && a.DestPage < len(d.Pages) {
-				action = fmt.Sprintf("/Dest [%d 0 R /XYZ 0 %s null]", pageObjs[a.DestPage], Num(a.DestY))
+				action = fmt.Sprintf("/Dest [%d 0 R /XYZ 0 %s null]", pageObjs[a.DestPage], d.num(a.DestY))
 			} else if a.URI != "" {
 				action = "/A << /S /URI /URI " + pdfString(a.URI) + " >>"
 			} else {
 				continue
 			}
 			n := w.add([]byte(fmt.Sprintf("<< /Type /Annot /Subtype /Link /Rect [%s %s %s %s] /Border [0 0 0] %s >>",
-				Num(a.X), Num(a.Y), Num(a.X+a.W), Num(a.Y+a.H), action)))
+				d.num(a.X), d.num(a.Y), d.num(a.X+a.W), d.num(a.Y+a.H), action)))
 			annots = append(annots, fmt.Sprintf("%d 0 R", n))
 		}
 		var pd strings.Builder
 		fmt.Fprintf(&pd, "<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %s %s] /Contents %d 0 R /Resources %s",
-			pagesRoot, Num(p.Width), Num(p.Height), contents, res.String())
+			pagesRoot, d.num(p.Width), d.num(p.Height), contents, res.String())
 		if len(annots) > 0 {
 			fmt.Fprintf(&pd, " /Annots [%s]", strings.Join(annots, " "))
 		}
