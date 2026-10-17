@@ -70,7 +70,7 @@ func (lc *lctx) layoutRotated(n *Node, rot int, absW *float64) vitem {
 	}
 	b.width = ipd
 	b.left = 0
-	lc2 := &lctx{e: lc.e, refW: inner, refH: lc.refH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
+	lc2 := &lctx{e: lc.e, refW: inner, refH: lc.refH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry, fn: lc.fn}
 	bb := lc2.newBlockBuilder(n)
 	bb.process(n.Children)
 	bb.flush()

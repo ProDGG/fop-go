@@ -41,7 +41,8 @@ type atom struct {
 	shrink     int
 	nb         bool // non-breaking space
 	rise       float64
-	text       string // for words: the source text (used when splitting overlong words)
+	text       string       // for words: the source text (used when splitting overlong words)
+	fn         *footnoteRef // footnote anchored here (aAnchor)
 }
 
 type imageBox struct {
@@ -103,6 +104,7 @@ type lineBox struct {
 	items   []lineItem
 	decors  []decorSeg
 	ids     []string
+	fns     []*footnoteRef
 	paraID  int
 	idx     int
 	nlines  int
@@ -405,7 +407,11 @@ func (lc *lctx) buildLine(atoms []atom, po paraOpts, x0 float64, showHyphen bool
 				}
 			}
 		case aAnchor:
-			lb.ids = append(lb.ids, a.id)
+			if a.fn != nil {
+				lb.fns = append(lb.fns, a.fn)
+			} else {
+				lb.ids = append(lb.ids, a.id)
+			}
 		}
 	}
 	if showHyphen && hy != nil {

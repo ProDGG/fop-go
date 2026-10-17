@@ -357,7 +357,7 @@ func (s *seqRun) run(startNum int) (int, error) {
 }
 
 // fill places queue entries onto one page.
-func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, []qEntry, brk) {
+func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) (placed []placedItem, rest []qEntry, kbrk brk) {
 	const eps = 0.01
 	q := append([]qEntry(nil), queue...)
 	br := pm.bodyRect()
@@ -365,9 +365,29 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 	colW := (br.w - pm.body.gap*float64(ncols-1)) / float64(ncols)
 	colH := br.h
 	lc := &lctx{e: s.e, refW: colW, refH: colH, pageNum: pnum, pageFmt: s.pageFmt, carry: s.carry}
-	var placed []placedItem
+	lc.fn = s.footnoteCtx(colW, pnum)
 	col := 0
 	y := 0.0
+	// footnotes of the column being filled
+	var colFn []*footnoteRef
+	fnUsed := 0.0
+	flushFn := func() {
+		if len(colFn) > 0 {
+			placed = append(placed, placedItem{&fnArea{refs: colFn, h: fnUsed}, col, colH - fnUsed})
+		}
+		colFn, fnUsed = nil, 0
+		lc.fn.have = false
+	}
+	defer flushFn()
+	fnAdd := func(it vitem) {
+		refs := fnOf(it)
+		if len(refs) == 0 {
+			return
+		}
+		fnUsed += fnCost(refs, len(colFn) > 0)
+		colFn = append(colFn, refs...)
+		lc.fn.have = true
+	}
 	var prev vitem
 	laidOut := func(i int) bool {
 		if q[i].item != nil {
@@ -405,6 +425,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 		}
 		if k != brkNone && len(placed) > 0 {
 			if k == brkColumn && col+1 < ncols {
+				flushFn()
 				col++
 				y = 0
 				prev = nil
@@ -423,7 +444,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 		}
 		// keep-with-next chains
 		if y > 0 && (it.keepNext() || (len(q) > 1 && laidOut(1) && q[1].item.keepPrev())) {
-			total := gap + it.height()
+			total := gap + it.height() + fnCost(fnOf(it), len(colFn) > 0)
 			cur := it
 			j := 0
 			lastGap := gap // gap before the last item of the chain
@@ -436,7 +457,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 					break
 				}
 				lastGap = resolveSpaces(concatSp(cur.afterSp(), nx.beforeSp()))
-				total += lastGap + nx.height()
+				total += lastGap + nx.height() + fnCost(fnOf(nx), true)
 				cur = nx
 				j++
 			}
@@ -451,6 +472,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 			}
 			if !chainFits && total <= colH+eps {
 				if col+1 < ncols {
+					flushFn()
 					col++
 					y = 0
 					prev = nil
@@ -459,11 +481,12 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 				return placed, q, brkNone
 			}
 		}
-		avail := colH - y - gap
-		h := it.height()
+		avail := colH - y - gap - fnUsed
+		h := it.height() + fnCost(fnOf(it), false)
 		if h <= avail+eps {
 			placed = append(placed, placedItem{it, col, y + gap})
-			y += gap + h
+			y += gap + it.height()
+			fnAdd(it)
 			prev = it
 			q = q[1:]
 			if bk := it.breakAfter(); bk != brkNone && len(q) > 0 {
@@ -475,8 +498,10 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 		head, tail := it.split(avail, atTop)
 		if head != nil {
 			placed = append(placed, placedItem{head, col, y + gap})
+			fnAdd(head)
 			q[0] = qEntry{item: tail, w: colW}
 			if col+1 < ncols {
+				flushFn()
 				col++
 				y = 0
 				prev = nil
@@ -486,12 +511,14 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 		}
 		if atTop {
 			placed = append(placed, placedItem{it, col, y})
+			fnAdd(it)
 			y += h
 			prev = it
 			q = q[1:]
 			continue
 		}
 		if col+1 < ncols {
+			flushFn()
 			col++
 			y = 0
 			prev = nil
@@ -632,4 +659,22 @@ func (s *seqRun) doForcePageCount(picker *masterPicker, startNum, pnum int) int 
 		}
 	}
 	return pnum
+}
+
+// footnoteCtx prepares the footnote geometry for a page whose columns are colW wide.
+func (s *seqRun) footnoteCtx(colW float64, pnum int) *fnCtx {
+	ctx := &fnCtx{bodyW: colW}
+	if sc := s.statics["xsl-footnote-separator"]; sc != nil {
+		lc := &lctx{e: s.e, refW: colW, pageNum: pnum, pageFmt: s.pageFmt, carry: s.carry}
+		bb := lc.newBlockBuilder(sc)
+		bb.process(sc.Children)
+		bb.flush()
+		blk := newBlock()
+		blk.children = bb.items
+		blk.fillGaps()
+		blk.width = colW
+		ctx.sepBlk = blk
+		ctx.sepH = blk.height()
+	}
+	return ctx
 }

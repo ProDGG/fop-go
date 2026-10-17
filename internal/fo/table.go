@@ -567,7 +567,7 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 			if inner < 1 {
 				inner = 1
 			}
-			lcc := &lctx{e: e, refW: inner, refH: lc.refH, S: S, E: E, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
+			lcc := &lctx{e: e, refW: inner, refH: lc.refH, S: S, E: E, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry, fn: lc.fn}
 			bb := lcc.newBlockBuilder(c.node)
 			bb.process(c.node.Children)
 			bb.flush()

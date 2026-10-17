@@ -18,6 +18,7 @@ type lctx struct {
 	listS, listDist, listSep float64
 	markers                  []marker // markers available to retrieve-marker
 	carry                    map[string]*Node
+	fn                       *fnCtx // footnote state of the page being filled (nil outside the body)
 }
 
 func (lc *lctx) contentW() float64 { return lc.refW - lc.S - lc.E }
@@ -458,7 +459,13 @@ func (bb *blockBuilder) node(c *Node) {
 				bb.node(ch)
 			}
 		}
-		e.warn("fo:footnote bodies are not supported; only the reference is rendered")
+		for _, ch := range c.Children {
+			if ch.Name == "footnote-body" {
+				if ref := lc.makeFootnote(ch); ref != nil {
+					ib.atoms = append(ib.atoms, atom{kind: aAnchor, fn: ref})
+				}
+			}
+		}
 	case "initial-property-set", "float":
 		if c.Name == "float" {
 			e.warn("fo:float is not supported (content rendered inline)")
@@ -645,7 +652,7 @@ func (lc *lctx) layoutBlockContainer(n *Node) vitem {
 	}
 	_ = E
 	// a block-container establishes a new reference area
-	lc2 := &lctx{e: lc.e, refW: inner, refH: lc.refH, S: Sc, E: Ec, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
+	lc2 := &lctx{e: lc.e, refW: inner, refH: lc.refH, S: Sc, E: Ec, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry, fn: lc.fn}
 	bb := lc2.newBlockBuilder(n)
 	bb.process(n.Children)
 	bb.flush()
@@ -786,7 +793,7 @@ func (lc *lctx) layoutAbsolute(n *Node, fixed bool) vitem {
 	b.left = 0
 	b.noInset = true
 	inner := w - deco
-	lc2 := &lctx{e: lc.e, refW: math.Max(inner, 1), refH: regH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
+	lc2 := &lctx{e: lc.e, refW: math.Max(inner, 1), refH: regH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry, fn: lc.fn}
 	bb := lc2.newBlockBuilder(n)
 	bb.process(n.Children)
 	bb.flush()

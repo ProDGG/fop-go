@@ -212,14 +212,24 @@ func (b *block) split(avail float64, force bool) (vitem, vitem) {
 	n := 0 // number of whole children that fit
 	var partHead, partTail vitem
 	var partGap float64
+	fnAcc, fnHave, fnSep, fnPaid := 0.0, false, 0.0, false // footnotes of the children placed so far
 	for i, c := range b.children {
 		g := b.gaps[i]
-		if y+g+c.height() <= limit+eps {
+		refs := fnOf(c)
+		cost := fnCost(refs, fnHave)
+		if y+g+c.height()+fnAcc+cost <= limit+eps {
 			y += g + c.height()
+			fnAcc += cost
+			if len(refs) > 0 {
+				fnHave, fnSep, fnPaid = true, refs[0].ctx.sepH, refs[0].ctx.have
+			}
 			n++
 			continue
 		}
-		room := limit - y - g
+		room := limit - y - g - fnAcc
+		if fnHave && !fnPaid {
+			room += fnSep // the child's own footnotes need no second separator
+		}
 		if room > 0 {
 			h, t := c.split(room, force && n == 0)
 			if h != nil && t != nil {
