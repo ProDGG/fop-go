@@ -242,7 +242,9 @@ func (lc *lctx) layoutBlockLevel(n *Node) vitem {
 	case "table":
 		return lc.layoutTable(n)
 	case "table-and-caption":
-		return lc.layoutTableAndCaption(n)
+		// Apache FOP has no layout manager for it and drops the whole object
+		lc.e.warn("fo:table-and-caption is not implemented by Apache FOP; skipped")
+		return nil
 	case "table-caption":
 		return lc.layoutBlock(n)
 	}

@@ -140,9 +140,59 @@ func (r *renderCtx) drawBorders(x, y, w, h float64, b [4]border, centered bool) 
 				r.fillRect(bx+bw-third, by, third, bh, c)
 			}
 		default:
-			r.fillRect(bx, by, bw, bh, c)
+			if centered {
+				// FOP strokes these as lines clipped to the border area
+				r.pg.Save()
+				r.pg.Rect(bx, r.py(by+bh), bw, bh)
+				r.pg.Clip()
+				r.pg.StrokeRGB(c.R, c.G, c.B)
+				if bw >= bh {
+					r.pg.LineWidth(bh)
+					r.pg.MoveTo(bx, r.py(by+bh/2))
+					r.pg.LineTo(bx+bw, r.py(by+bh/2))
+				} else {
+					r.pg.LineWidth(bw)
+					r.pg.MoveTo(bx+bw/2, r.py(by))
+					r.pg.LineTo(bx+bw/2, r.py(by+bh))
+				}
+				r.pg.Stroke()
+				r.pg.Restore()
+			} else {
+				r.solidSide(i, x, y, w, h, b, c)
+			}
 		}
 	}
+}
+
+// solidSide draws a solid border side the way Apache FOP's PDF painter does: a line
+// of the border's width stroked inside a trapezoid that is clipped at the corners.
+func (r *renderCtx) solidSide(i int, x, y, w, h float64, b [4]border, c Color) {
+	var ox, oy, dx, dy, nx, ny, length, pw, nw float64
+	switch i {
+	case 0:
+		ox, oy, dx, dy, nx, ny, length, pw, nw = x, y, 1, 0, 0, 1, w, b[3].w, b[1].w
+	case 1:
+		ox, oy, dx, dy, nx, ny, length, pw, nw = x+w, y, 0, 1, -1, 0, h, b[0].w, b[2].w
+	case 2:
+		ox, oy, dx, dy, nx, ny, length, pw, nw = x+w, y+h, -1, 0, 0, -1, w, b[1].w, b[3].w
+	default:
+		ox, oy, dx, dy, nx, ny, length, pw, nw = x, y+h, 0, -1, 1, 0, h, b[2].w, b[0].w
+	}
+	bw := b[i].w
+	r.pg.Save()
+	r.pg.Transform(dx, -dy, nx, -ny, ox, r.pageH-oy)
+	r.pg.MoveTo(0, 0)
+	r.pg.LineTo(length, 0)
+	r.pg.LineTo(length-nw, bw)
+	r.pg.LineTo(pw, bw)
+	r.pg.ClosePath()
+	r.pg.Clip()
+	r.pg.StrokeRGB(c.R, c.G, c.B)
+	r.pg.LineWidth(bw)
+	r.pg.MoveTo(0, bw/2)
+	r.pg.LineTo(length, bw/2)
+	r.pg.Stroke()
+	r.pg.Restore()
 }
 
 func (r *renderCtx) drawBlockDecor(b *block, x, y, h float64) {

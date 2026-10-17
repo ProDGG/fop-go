@@ -275,6 +275,11 @@ func (b *block) split(avail float64, force bool) (vitem, vitem) {
 		tail.children = append([]vitem(nil), rest...)
 		tail.gaps = append([]float64{0}, restGaps[1:]...)
 	}
+	if k := len(head.children) - 1; k >= 0 {
+		if rb, ok := head.children[k].(*rowBox); ok {
+			head.children[k] = rb.clampSpans()
+		}
+	}
 	head.last, head.endGap, head.minH, head.fixedH = false, 0, 0, false
 	head.bAfter = brkNone
 	head.spA = nil

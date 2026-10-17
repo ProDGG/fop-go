@@ -21,6 +21,7 @@ type cellInfo struct {
 	x, w   float64
 	blk    *block
 	b      [4]border // own borders (before collapse resolution)
+	dy     float64   // vertical offset of the cell box inside its row
 }
 
 type rowInfo struct {
@@ -36,6 +37,7 @@ type rowInfo struct {
 type rowCell struct {
 	x   float64
 	blk *block
+	dy  float64
 }
 
 // rowBox is one table row; its cells are laid out side by side.
@@ -44,6 +46,7 @@ type rowBox struct {
 	h        float64
 	spBefore float64 // border-separation (kept at breaks)
 	spAfter  float64
+	spanning bool    // some cell spans further rows
 	pad      float64 // border-separation.block-progression-dimension (half above, half below the cells)
 	kNext    bool
 	kTogeth  bool
@@ -126,7 +129,7 @@ func (rb *rowBox) split(avail float64, force bool) (vitem, vitem) {
 	tailRow := &rowBox{pad: rb.pad, spAfter: rb.spAfter, kNext: rb.kNext, bAfter: rb.bAfter}
 	for i, c := range rb.cells {
 		heads[i].forceH = maxH
-		headRow.cells = append(headRow.cells, rowCell{c.x, heads[i]})
+		headRow.cells = append(headRow.cells, rowCell{c.x, heads[i], c.dy})
 		t := tails[i]
 		if t == nil {
 			e := *c.blk
@@ -134,10 +137,28 @@ func (rb *rowBox) split(avail float64, force bool) (vitem, vitem) {
 			e.minH, e.fixedH, e.forceH, e.endGap = 0, false, 0, 0
 			t = &e
 		}
-		tailRow.cells = append(tailRow.cells, rowCell{c.x, t})
+		tailRow.cells = append(tailRow.cells, rowCell{c.x, t, c.dy})
 	}
 	tailRow.setHeights()
 	return headRow, tailRow
+}
+
+// clampSpans returns the row with row-spanning cells cut to the row's own height
+// (used when the table breaks right after the row).
+func (rb *rowBox) clampSpans() *rowBox {
+	if !rb.spanning {
+		return rb
+	}
+	cp := *rb
+	cp.cells = make([]rowCell, len(rb.cells))
+	for i, c := range rb.cells {
+		blk := *c.blk
+		if own := rb.h - rb.pad; blk.forceH > own {
+			blk.forceH = own
+		}
+		cp.cells[i] = rowCell{c.x, &blk, c.dy}
+	}
+	return &cp
 }
 
 func (rb *rowBox) render(r *renderCtx, ox, y float64) {
@@ -145,7 +166,7 @@ func (rb *rowBox) render(r *renderCtx, ox, y float64) {
 		r.registerID(id, y)
 	}
 	for _, c := range rb.cells {
-		c.blk.render(r, ox+c.x, y+rb.pad/2)
+		c.blk.render(r, ox+c.x, y+rb.pad/2+c.dy)
 	}
 }
 
@@ -401,6 +422,9 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 	fixed, propSum := 0.0, 0.0
 	autoN := 0
 	for _, c := range cols {
+		if c.kind == 0 { // FOP: column-width unspecified falls back to proportional-column-width(1)
+			c.kind, c.val = 2, 1
+		}
 		switch c.kind {
 		case 1:
 			c.w = c.val
@@ -575,12 +599,31 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 			cb.markers = bb.markers
 			cb.fillGaps()
 			cb.spB, cb.spA = nil, nil
+			// the cell's own height and the row's height are minimum content heights
+			minC := 0.0
 			if h, ok := lc.length(c.node, "block-progression-dimension.minimum", cw); ok {
-				cb.minH = h
+				minC = h
 			} else if h, ok := lc.length(c.node, "height", cw); ok {
-				cb.minH = h
+				minC = h
 			} else if h, ok := lc.length(c.node, "block-progression-dimension", cw); ok {
-				cb.minH = h
+				minC = h
+			}
+			if c.rs == 1 && r.minH > minC {
+				minC = r.minH
+			}
+			if minC > 0 {
+				cb.minH = minC + cb.topDeco() + cb.botDeco()
+			}
+			if !collapse && c.node.Get("empty-cells") == "hide" {
+				// FOP treats every cell as empty here: no border, no background, and the
+				// half border-separation / border-before offset is not applied
+				for i := range cb.b {
+					cb.b[i].style = "none"
+				}
+				if _, ok := ParseColor(c.node.Props["background-color"]); ok {
+					cb.bg = Color{}
+				}
+				c.dy = -(vsep/2 + cb.b[0].w)
 			}
 			c.blk = cb
 		}
@@ -588,7 +631,10 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 
 	// ---- row heights ----
 	for _, r := range rows {
-		r.h = r.minH
+		r.h = 0
+		if len(r.cells) == 0 {
+			r.h = r.minH
+		}
 		for _, c := range r.cells {
 			if c.rs == 1 && c.blk.height() > r.h {
 				r.h = c.blk.height()
@@ -633,18 +679,23 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 			if c.rs > 1 {
 				last := ri + c.rs - 1
 				sum := vsep * float64(last-ri)
+				cum := 0.0
 				for k := ri; k <= last && k < len(rows); k++ {
 					sum += rows[k].h
-					if k < last {
+					cum += rows[k].h
+					// a break after row k is possible once the spanning cell's content fits
+					// into the rows above it; the cell then ends at the break
+					if k < last && c.blk.height() > cum+vsep*float64(k-ri) {
 						spanKeep[k] = true
 					}
 				}
 				c.blk.forceH = sum
 				rb.noSplit = true
+				rb.spanning = true
 			} else {
 				c.blk.forceH = r.h
 			}
-			rb.cells = append(rb.cells, rowCell{c.x, c.blk})
+			rb.cells = append(rb.cells, rowCell{c.x, c.blk, c.dy})
 		}
 		if spanKeep[ri] {
 			rb.kNext = true

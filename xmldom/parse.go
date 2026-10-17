@@ -45,7 +45,12 @@ func ParseBytes(data []byte) (*Node, error) {
 			el.Line = line
 			el.Prefix, el.Name = t.Name.Space, t.Name.Local
 			var plain []xml.Attr
+			seen := map[xml.Name]bool{}
 			for _, a := range t.Attr {
+				if seen[a.Name] {
+					return nil, fmt.Errorf("xml: line %d: attribute %q redefined", line, a.Name.Local)
+				}
+				seen[a.Name] = true
 				switch {
 				case a.Name.Space == "" && a.Name.Local == "xmlns":
 					el.NS = append(el.NS, NSDecl{"", a.Value})
