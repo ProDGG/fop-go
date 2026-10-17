@@ -87,6 +87,26 @@ Times и Courier; латиница, кириллица, греческий). С�
   (миллипункты);
 - PDF: метаданные, Flate-сжатие, закладки, аннотации-ссылки.
 
+## HTML-отчёты (Flying Saucer + iText)
+
+Если результат XSLT — HTML-документ (корневой элемент `html`), PDF строится не FO-движком, а
+портом конвейера **Flying Saucer 9.1.22 + iText 5**: CSS 2.1 (каскад, `@page`, margin boxes,
+`position: running()`, `counter(page|pages)`), блочная/строчная вёрстка, float, таблицы
+(fixed/auto, collapsed borders), позиционирование (`relative/absolute/fixed`, `z-index`),
+`overflow: hidden`, закладки по `h1..h6`, ссылки, SVG/PNG/JPEG. Чтобы вёрстка совпадала с
+оригиналом, шрифт `Arial` берётся с метриками настоящего Arial (встроенный Liberation Sans).
+
+```
+fop-go -xml report.xml -xmlroot Root -xsl templates/IndividualAdvancedReport.xslt -pdf report.pdf
+```
+
+* `-xmlroot Root` — сделать элемент `Root` корнем документа (шаблоны обращаются к `/Root/...`);
+  в API — `Options.SourceRoot`.
+* `PATH_TO_FILE` в `xsl:import` заменяется на каталог шаблона (`Options.PathPlaceholder`).
+* Результат XSLT сериализуется с `indent="yes"` и разбирается заново, как в эталонном конвейере.
+* Тесты `internal/xhr` сравнивают позиции текста с выводом настоящего Flying Saucer на синтетических
+  фикстурах (`internal/xhr/testdata`).
+
 ## Ограничения (чего пока нет)
 
 - Автоматическая раскладка таблиц по содержимому (`table-layout="auto"`): колонки без ширины

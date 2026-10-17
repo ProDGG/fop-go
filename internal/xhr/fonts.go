@@ -23,6 +23,9 @@ type FontDesc struct {
 	underlinePos, underlineThick float32
 	strikePos, strikeSize        float32
 
+	// afmWidths are the base-14 glyph widths (WinAnsi only); nil for TrueType fonts.
+	afmWidths map[rune]int
+
 	mu     sync.Mutex
 	widths map[rune]int
 }
@@ -48,8 +51,31 @@ func NewFontDesc(f *font.Font, weight int, italic bool, bbox *[2]int) *FontDesc 
 	return d
 }
 
+// afmMetrics are the AFM values iText uses for the PDF base-14 fonts.
+type afmMetrics struct{ lly, ury, xTop int }
+
+// newBase14Desc wraps a metric-compatible substitute so that vertical metrics and
+// decoration geometry follow the base-14 font it stands in for.
+func newBase14Desc(f *font.Font, weight int, italic bool, m afmMetrics, widthsKey string) *FontDesc {
+	d := &FontDesc{Face: f, Weight: weight, Italic: italic, upem: 1000, widths: map[rune]int{}, afmWidths: base14Widths[widthsKey]}
+	d.yMax, d.yMin = float32(m.ury), float32(m.lly)
+	d.underlinePos, d.underlineThick = -50, 50
+	d.strikePos = float32(m.xTop/2 + 50)
+	d.strikeSize = 100
+	return d
+}
+
+var base14AFM = map[string]map[[2]int]afmMetrics{
+	"Helvetica": {{400, 0}: {-225, 931, 523}, {700, 0}: {-228, 962, 532}, {400, 1}: {-225, 931, 523}, {700, 1}: {-228, 962, 532}},
+	"Times":     {{400, 0}: {-218, 898, 450}, {700, 0}: {-218, 935, 461}, {400, 1}: {-217, 883, 441}, {700, 1}: {-218, 921, 462}},
+	"Courier":   {{400, 0}: {-250, 805, 426}, {700, 0}: {-250, 801, 439}, {400, 1}: {-250, 805, 426}, {700, 1}: {-250, 801, 439}},
+}
+
 // charWidth returns the iText glyph width (1/1000 em, integer) of r.
 func (d *FontDesc) charWidth(r rune) int {
+	if d.afmWidths != nil {
+		return d.afmWidths[r]
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if w, ok := d.widths[r]; ok {
@@ -64,7 +90,13 @@ func (d *FontDesc) charWidth(r rune) int {
 }
 
 // HasGlyph reports whether iText would draw r (unmapped characters are skipped).
-func (d *FontDesc) HasGlyph(r rune) bool { return d.Face.HasGlyph(r) }
+func (d *FontDesc) HasGlyph(r rune) bool {
+	if d.afmWidths != nil {
+		_, ok := d.afmWidths[r]
+		return ok
+	}
+	return d.Face.HasGlyph(r)
+}
 
 // FSFont is a font at a given size in dots.
 type FSFont struct {
@@ -210,13 +242,14 @@ func NewFontEngine() *FontEngine {
 		names  []string
 		family string
 		bbox   map[member]*[2]int
+		afm    string
 	}{
 		{[]string{"Arial"}, "liberation sans", map[member]*[2]int{
 			{400, false}: {2060, -665}, {700, false}: {2084, -771},
-			{400, true}: {2060, -665}, {700, true}: {2084, -771}}},
-		{[]string{"Helvetica", "SansSerif", "Dialog"}, "liberation sans", nil},
-		{[]string{"Serif", "TimesRoman", "Times"}, "liberation serif", nil},
-		{[]string{"Courier", "Monospaced", "DialogInput"}, "liberation mono", nil},
+			{400, true}: {2060, -665}, {700, true}: {2084, -771}}, ""},
+		{[]string{"Helvetica", "SansSerif", "Dialog"}, "liberation sans", nil, "Helvetica"},
+		{[]string{"Serif", "TimesRoman", "Times"}, "liberation serif", nil, "Times"},
+		{[]string{"Courier", "Monospaced", "DialogInput"}, "liberation mono", nil, "Courier"},
 	}
 	for _, fdef := range families {
 		fam := &FontFamily{Name: fdef.names[0]}
@@ -232,6 +265,26 @@ func NewFontEngine() *FontEngine {
 			var bb *[2]int
 			if fdef.bbox != nil {
 				bb = fdef.bbox[m]
+			}
+			if tbl := base14AFM[fdef.afm]; tbl != nil {
+				it := 0
+				if m.it {
+					it = 1
+				}
+				key := fdef.afm
+				if key == "Times" && m.w < 700 && !m.it {
+					key = "TimesRoman"
+				}
+				if m.w >= 700 {
+					key += "Bold"
+				}
+				if m.it && fdef.afm == "Times" {
+					key += "Italic"
+				} else if m.it {
+					key += "Oblique"
+				}
+				fam.add(newBase14Desc(ft, m.w, m.it, tbl[[2]int{m.w, it}], key))
+				continue
 			}
 			fam.add(NewFontDesc(ft, m.w, m.it, bb))
 		}

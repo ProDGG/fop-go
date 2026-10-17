@@ -602,7 +602,9 @@ func (b *Box) layoutFlexRow(lc *LayoutContext) {
 	var laid []*Box
 	for _, it := range items {
 		if it.Kind == KAnon {
-			// anonymous text between items takes no part in the row
+			// anonymous boxes (whitespace, out-of-flow content) take no part in the
+			// row; they are still laid out so positioned boxes inside get placed
+			layoutBlockChild0(lc, b, it, false, 0, noPageTrim)
 			continue
 		}
 		layoutBlockChild0(lc, b, it, false, 0, noPageTrim)

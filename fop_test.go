@@ -202,3 +202,51 @@ func TestSVGAndFootnote(t *testing.T) {
 		t.Error("SVG fill colour missing")
 	}
 }
+
+// TestHTMLReportPipeline runs XML + XSLT (HTML output, PATH_TO_FILE imports,
+// enveloped source) through the Flying Saucer compatible engine.
+func TestHTMLReportPipeline(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		p := dir + "/" + name
+		if err := os.MkdirAll(p[:strings.LastIndex(p, "/")], 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	write("items/rows.xsl", `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:template name="rows"><xsl:for-each select="/Root/Item"><tr><td class="c"><xsl:value-of select="@name"/></td></tr></xsl:for-each></xsl:template>
+</xsl:stylesheet>`)
+	xsl := write("main.xslt", `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:import href="PATH_TO_FILE/items/rows.xsl"/>
+<xsl:output method="html" indent="yes"/>
+<xsl:template match="Root"><html><head><style>@page{size:A4;margin:1cm} td.c{padding:4px;border:1px solid #888}</style></head>
+<body><table><tbody><xsl:call-template name="rows"/></tbody></table></body></html></xsl:template>
+</xsl:stylesheet>`)
+	var items strings.Builder
+	items.WriteString(`<Report><Root>`)
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&items, `<Item name="Row %d"/>`, i)
+	}
+	items.WriteString(`</Root></Report>`)
+	xml := write("data.xml", items.String())
+	out := dir + "/out.pdf"
+	o := opts()
+	o.SourceRoot = "Root"
+	if err := RenderFiles(xml, xsl, out, o); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		t.Fatal("not a PDF")
+	}
+	if n := pageCount(data); n < 2 {
+		t.Errorf("expected the table to span several pages, got %d", n)
+	}
+}

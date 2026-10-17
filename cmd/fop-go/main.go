@@ -36,6 +36,7 @@ func main() {
 		noSys    = flag.Bool("nosystemfonts", false, "do not scan system font directories")
 		dpi      = flag.Float64("dpi", 72, "source resolution used to convert px to pt")
 		remote   = flag.Bool("remote", false, "allow loading http(s) images")
+		xmlRoot  = flag.String("xmlroot", "", "use the first element with this name as the document element of the XML input")
 		quiet    = flag.Bool("q", false, "suppress warnings")
 		params   multi
 		fonts    multi
@@ -52,7 +53,7 @@ func main() {
 
 	opts := fop.Options{
 		BaseDir: *baseDir, Title: *title, Author: *author, NoCompress: *noComp, NoSystemFonts: *noSys,
-		SourceResolution: *dpi, AllowRemote: *remote, FontDirs: fontDirs,
+		SourceResolution: *dpi, AllowRemote: *remote, FontDirs: fontDirs, SourceRoot: *xmlRoot,
 	}
 	if !*quiet {
 		opts.Warn = func(s string) { fmt.Fprintln(os.Stderr, "warning:", s) }

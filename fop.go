@@ -19,6 +19,7 @@ import (
 
 	"github.com/ProDGG/fop-go/internal/fo"
 	"github.com/ProDGG/fop-go/internal/font"
+	"github.com/ProDGG/fop-go/internal/xhr"
 	"github.com/ProDGG/fop-go/xmldom"
 	"github.com/ProDGG/fop-go/xslt"
 )
@@ -47,6 +48,14 @@ type Options struct {
 	FontDirs []string
 	// NoSystemFonts disables scanning of system font directories.
 	NoSystemFonts bool
+	// SourceRoot, when set, makes the first element with that name the document
+	// element of the XML input before the stylesheet runs (reports are often
+	// wrapped in an envelope while their templates address "/Root/...").
+	SourceRoot string
+	// PathPlaceholder is replaced by the stylesheet's directory inside the
+	// stylesheet text (e.g. "PATH_TO_FILE" in xsl:import hrefs). Default
+	// "PATH_TO_FILE"; set to "-" to disable.
+	PathPlaceholder string
 	// Document metadata.
 	Title, Author, Subject, Keywords, Creator, Producer string
 	// NoCompress disables Flate compression of PDF streams.
@@ -100,6 +109,7 @@ func Transform(xmlDoc, xslDoc io.Reader, opts Options) (*xmldom.Node, error) {
 }
 
 func transformBytes(xmlData, xslData []byte, opts Options, xmlPath string) (*xmldom.Node, error) {
+	xslData = replacePathPlaceholder(xslData, opts)
 	ss, err := xslt.CompileBytes(xslData, xslt.Options{BaseURI: xslBase(opts)})
 	if err != nil {
 		return nil, err
@@ -107,6 +117,9 @@ func transformBytes(xmlData, xslData []byte, opts Options, xmlPath string) (*xml
 	src, err := xmldom.ParseBytes(xmlData)
 	if err != nil {
 		return nil, fmt.Errorf("parsing XML input: %w", err)
+	}
+	if opts.SourceRoot != "" {
+		src = promoteRoot(src, opts.SourceRoot)
 	}
 	params := map[string]interface{}{}
 	for k, v := range opts.Params {
@@ -117,6 +130,47 @@ func transformBytes(xmlData, xslData []byte, opts Options, xmlPath string) (*xml
 		msg = func(s string) { opts.Warn("xsl:message: " + s) }
 	}
 	return ss.Transform(src, xslt.TransformOptions{Params: params, Messages: msg, SourceURI: xmlPath})
+}
+
+// promoteRoot returns a document whose element is the first element named name
+// (searching breadth first); the input is returned when there is none.
+func promoteRoot(doc *xmldom.Node, name string) *xmldom.Node {
+	de := doc.DocumentElement()
+	if de == nil || de.Name == name {
+		return doc
+	}
+	queue := []*xmldom.Node{de}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		for _, c := range n.Children {
+			if c.Type != xmldom.ElementNode {
+				continue
+			}
+			if c.Name == name {
+				nd := xmldom.NewDocument()
+				nd.AppendChild(c)
+				return nd
+			}
+			queue = append(queue, c)
+		}
+	}
+	return doc
+}
+
+func replacePathPlaceholder(xsl []byte, o Options) []byte {
+	ph := o.PathPlaceholder
+	if ph == "-" {
+		return xsl
+	}
+	if ph == "" {
+		ph = "PATH_TO_FILE"
+	}
+	if !bytes.Contains(xsl, []byte(ph)) {
+		return xsl
+	}
+	// imports resolve against the stylesheet location, so "." is the template directory
+	return bytes.ReplaceAll(xsl, []byte(ph), []byte("."))
 }
 
 func xslBase(o Options) string {
@@ -139,6 +193,9 @@ func SerializeFO(doc *xmldom.Node) []byte {
 
 // RenderFODocument renders an already parsed XSL-FO tree.
 func RenderFODocument(doc *xmldom.Node, w io.Writer, opts Options) error {
+	if isHTMLDocument(doc) {
+		return renderHTMLDocument(doc, w, opts)
+	}
 	tree, err := fo.BuildTree(doc)
 	if err != nil {
 		return err
@@ -258,4 +315,61 @@ func ParseFontFlag(s string) (FontSpec, error) {
 		}
 	}
 	return spec, nil
+}
+
+// isHTMLDocument reports whether the result tree is an (X)HTML document, which
+// is rendered by the Flying Saucer compatible engine instead of the FO engine.
+func isHTMLDocument(doc *xmldom.Node) bool {
+	de := doc
+	if doc.Type == xmldom.DocumentNode {
+		de = doc.DocumentElement()
+	}
+	return de != nil && de.Type == xmldom.ElementNode && strings.EqualFold(de.Name, "html") &&
+		(de.URI == "" || de.URI == "http://www.w3.org/1999/xhtml")
+}
+
+func renderHTMLDocument(doc *xmldom.Node, w io.Writer, opts Options) error {
+	base := opts.BaseDir
+	if base == "" {
+		base = "."
+	}
+	xo := xhr.Options{
+		Title: opts.Title, Author: opts.Author,
+		ResolveResource: func(uri string) ([]byte, error) {
+			if strings.HasPrefix(uri, "file:") {
+				uri = strings.TrimPrefix(strings.TrimPrefix(uri, "file://"), "file:")
+			}
+			if !filepath.IsAbs(uri) {
+				uri = filepath.Join(base, uri)
+			}
+			return os.ReadFile(uri)
+		},
+	}
+	for _, f := range opts.Fonts {
+		data := f.Data
+		if data == nil {
+			var err error
+			if data, err = os.ReadFile(f.Path); err != nil {
+				return fmt.Errorf("fop: font %q: %w", f.Family, err)
+			}
+		}
+		xo.Fonts = append(xo.Fonts, xhr.FontData{Family: f.Family, Data: data})
+	}
+	// The reference pipeline serialises the stylesheet result (xsl:output
+	// indent="yes") and parses it again, which re-introduces the layout
+	// whitespace between elements that the stylesheet processing dropped.
+	var ser bytes.Buffer
+	if err := xmldom.Serialize(&ser, doc, true); err != nil {
+		return err
+	}
+	reparsed, err := xmldom.ParseBytes(ser.Bytes())
+	if err != nil {
+		return fmt.Errorf("fop: reparsing HTML result: %w", err)
+	}
+	pdfData, err := xhr.Render(reparsed, xo)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(pdfData)
+	return err
 }

@@ -113,7 +113,7 @@ func (s *serializer) node(n *Node, scope map[string]string, depth int) {
 				hasElem = true
 			}
 		}
-		onlyElems := s.indent && hasElem
+		onlyElems := s.indent && hasElem && depth >= 0
 		if onlyElems {
 			for _, c := range n.Children {
 				if c.Type == TextNode && strings.TrimSpace(c.Value) != "" {
