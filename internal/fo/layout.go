@@ -394,7 +394,10 @@ func (bb *blockBuilder) node(c *Node) {
 		if it := lc.layoutBlockLevel(c); it != nil {
 			bb.items = append(bb.items, it)
 		}
-	case "wrapper", "inline", "basic-link", "bidi-override", "inline-container", "fox:destination":
+	case "inline-container":
+		bb.anchor(c)
+		ib.addBox(lc.inlineContainerAtom(c))
+	case "wrapper", "inline", "basic-link", "bidi-override", "fox:destination":
 		bb.anchor(c)
 		if containsBlock(c) {
 			bb.flush()
@@ -1119,4 +1122,62 @@ func (lc *lctx) leaderAtom(c *Node) atom {
 	a := atom{kind: aLeader, leader: ld, style: st}
 	a.w = ld.optW
 	return a
+}
+
+// inlineContainerAtom lays out an fo:inline-container as an inline box; its baseline
+// is the baseline of its first line.
+func (lc *lctx) inlineContainerAtom(c *Node) atom {
+	e := lc.e
+	cw := lc.contentW()
+	b := newBlock()
+	lc.boxProps(c, b, cw)
+	// FOP ignores border and padding on fo:inline-container
+	b.b = [4]border{{style: "none"}, {style: "none"}, {style: "none"}, {style: "none"}}
+	b.p = [4]float64{}
+	b.bg = Color{}
+	deco := 0.0
+	w := cw
+	if v, ok := lc.length(c, "width", cw); ok {
+		w = v + deco
+	} else if v, ok := lc.length(c, "inline-progression-dimension", cw); ok {
+		w = v + deco
+	}
+	b.width = w
+	b.fixedW = true
+	b.spB, b.spA = nil, nil
+	lc2 := &lctx{e: e, refW: math.Max(w-deco, 1), refH: lc.refH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry, fn: lc.fn}
+	bb := lc2.newBlockBuilder(c)
+	bb.process(c.Children)
+	bb.flush()
+	b.children = bb.items
+	b.fillGaps()
+	b.spB, b.spA = nil, nil
+	if h, ok := lc.length(c, "height", cw); ok {
+		b.minH = h + b.topDeco() + b.botDeco()
+		b.fixedH = true
+	}
+	h := b.height()
+	first := firstBaseline(b)
+	if first <= 0 {
+		first = h
+	}
+	box := &imageBox{blk: b, w: w, h: h, cw: w, ch: h}
+	return atom{kind: aBox, w: w, img: box, style: e.styleFor(c), rise: -(h - first)}
+}
+
+// firstBaseline is the distance from the top of a vertical item to the baseline of
+// its first line (0 when it has no text).
+func firstBaseline(v vitem) float64 {
+	switch t := v.(type) {
+	case *lineBox:
+		return t.base
+	case *block:
+		if len(t.children) == 0 {
+			return 0
+		}
+		if fb := firstBaseline(t.children[0]); fb > 0 {
+			return t.topDeco() + t.gaps[0] + fb
+		}
+	}
+	return 0
 }

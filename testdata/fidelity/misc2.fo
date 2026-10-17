@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body background-color="#f8f8ff" margin="5mm"/><fo:region-before extent="10mm" background-color="#ffeedd"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:static-content flow-name="xsl-region-before"><fo:block>header</fo:block></fo:static-content><fo:flow flow-name="xsl-region-body">
+<fo:block font-variant="small-caps" space-after="4pt">Small caps text Lorem ipsum</fo:block>
+<fo:block space-after="4pt">Deco: <fo:inline text-decoration="underline" color="red">underline red</fo:inline> <fo:inline text-decoration="overline">over</fo:inline> <fo:inline text-decoration="line-through underline">both</fo:inline> <fo:basic-link external-destination="http://example.com" color="blue" text-decoration="underline">link</fo:basic-link> <fo:character character="X"/> done.</fo:block>
+<fo:block white-space="pre" font-family="Liberation Mono" space-after="4pt">pre   formatted
+  line two
+	tab</fo:block>
+<fo:block linefeed-treatment="preserve" white-space-collapse="true" space-after="4pt">line one
+line two   spaced
+line three</fo:block>
+<fo:block wrap-option="no-wrap" space-after="4pt">consectetur elit ipsum dolor ipsum сит adipiscing veniam dolor амет nostrud лорем consectetur лорем veniam lorem ipsum nostrud labore lorem elit elit сит долор consectetur veniam ipsum dolor ipsum долор долор ipsum aliqua долор сит ipsum elit долор сит aliqua</fo:block>
+<fo:block text-align="end" text-align-last="start" space-after="4pt">долор сит consectetur aliqua сит tempor nostrud ипсум labore nostrud dolor dolor veniam labore амет labore лорем ипсум ипсум veniam ипсум tempor magna сит consectetur nostrud veniam ипсум veniam сит амет adipiscing nostrud долор лорем veniam tempor magna лорем ипсум</fo:block>
+<fo:block text-align="justify" text-align-last="center" space-after="4pt">veniam амет лорем лорем dolor долор aliqua сит labore veniam сит амет dolor consectetur ipsum долор lorem lorem амет лорем ипсум dolor nostrud labore magna veniam nostrud consectetur сит veniam magna adipiscing consectetur adipiscing aliqua ipsum лорем veniam долор ипсум лорем амет лорем долор сит</fo:block>
+<fo:block margin-left="30pt" margin-right="20pt" start-indent="10pt" end-indent="5pt" border="1pt solid gray" padding="4pt" space-after="4pt" background-color="#eef">nostrud ipsum долор magna lorem сит labore adipiscing aliqua veniam labore ipsum magna consectetur adipiscing долор nostrud elit elit ipsum consectetur tempor veniam nostrud labore nostrud labore consectetur labore adipiscing</fo:block>
+<fo:block text-indent="20pt" last-line-end-indent="30pt" text-align="justify" space-after="4pt">долор consectetur сит амет амет tempor ипсум ipsum ипсум nostrud лорем сит амет consectetur lorem elit ипсум nostrud labore долор adipiscing долор tempor aliqua лорем ипсум aliqua амет veniam labore долор magna лорем сит ипсум labore амет ипсум consectetur consectetur</fo:block>
+<fo:block font-size="14pt" font-weight="bold" font-style="italic" line-height="1.5" space-after="4pt">Bold italic 14pt lorem долор долор ипсум labore nostrud долор lorem veniam ipsum elit elit</fo:block>
+<fo:block space-after="4pt"><fo:inline-container width="80pt" border="0.5pt solid black"><fo:block>inline container text</fo:block></fo:inline-container> after container</fo:block>
+<fo:list-block provisional-distance-between-starts="30pt" provisional-label-separation="6pt" space-after="4pt">
+<fo:list-item><fo:list-item-label end-indent="label-end()"><fo:block>1.</fo:block></fo:list-item-label><fo:list-item-body start-indent="body-start()"><fo:block>veniam dolor ipsum veniam magna labore ipsum labore сит ipsum adipiscing elit elit magna ipsum nostrud nostrud tempor ipsum consectetur</fo:block></fo:list-item-body></fo:list-item>
+<fo:list-item space-before="3pt"><fo:list-item-label end-indent="label-end()"><fo:block>2.</fo:block></fo:list-item-label><fo:list-item-body start-indent="body-start()"><fo:block>tempor dolor lorem tempor амет</fo:block><fo:block>consectetur nostrud aliqua adipiscing adipiscing veniam dolor сит</fo:block></fo:list-item-body></fo:list-item>
+</fo:list-block>
+<fo:block-container height="60pt" display-align="center" border="1pt solid black" space-after="4pt"><fo:block>centered vertically</fo:block></fo:block-container>
+<fo:block-container height="60pt" display-align="after" border="1pt solid black"><fo:block>at bottom</fo:block></fo:block-container>
+<fo:block space-before="8pt" background-color="#ddd" min-height="40pt">min-height block</fo:block>
+</fo:flow></fo:page-sequence></fo:root>

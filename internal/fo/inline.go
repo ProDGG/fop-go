@@ -1,7 +1,6 @@
 package fo
 
 import (
-	"math"
 	"strings"
 	"unicode"
 
@@ -50,6 +49,7 @@ type imageBox struct {
 	w, h   float64 // viewport
 	cw, ch float64 // content size
 	clip   bool
+	blk    *block // inline-container content (img is nil)
 }
 
 type leaderSpec struct {
@@ -235,7 +235,7 @@ func (ib *inlineBuilder) addTextRaw(n *Node, text string) {
 				flush(false)
 				n := 1
 				if r == '\t' {
-					n = 8
+					n = 1 // FOP treats a tab like a single space
 				}
 				for k := 0; k < n; k++ {
 					sp := e.spaceAtom(st)
@@ -246,6 +246,12 @@ func (ib *inlineBuilder) addTextRaw(n *Node, text string) {
 			default:
 				ib.addRune(&word, r, st, flush)
 			}
+		case r == '\n' && st.lfPreserve:
+			// linefeed-treatment="preserve" with collapsing spaces: the linefeed ends the line
+			flush(false)
+			ib.pending = false
+			ib.atoms = append(ib.atoms, atom{kind: aBreak, style: st})
+			ib.atStart = true
 		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
 			flush(false)
 			if !ib.pending {
@@ -521,17 +527,22 @@ func (r *renderCtx) drawLineText(l *lineBox, x, y float64) {
 			end = l.items[j].x + l.items[j].w
 		}
 		st := it.style
-		asc, _ := st.ascDesc()
-		th := math.Max(0.5, st.size/18)
+		// AbstractPathOrientedRenderer.renderTextDecoration
+		desc := float64(st.size * float64(st.ft.Desc1000) / 1000) // negative
+		capH := st.size * float64(st.ft.Cap1000) / 1000
+		th := -desc / 8
 		by := baseY - it.rise
-		if st.underline {
-			r.fillRect(x+it.x, by+st.size*0.12, end-it.x, th, st.color)
+		bar := func(center float64) {
+			r.fillRect(x+it.x, center-th/2, end-it.x, th, st.color)
 		}
-		if st.strike {
-			r.fillRect(x+it.x, by-st.size*0.28, end-it.x, th, st.color)
+		if st.underline {
+			bar(by - desc/2)
 		}
 		if st.overline {
-			r.fillRect(x+it.x, by-asc, end-it.x, th, st.color)
+			bar(by - 1.1*capH)
+		}
+		if st.strike {
+			bar(by - 0.45*capH)
 		}
 		idx = j + 1
 	}

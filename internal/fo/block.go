@@ -363,7 +363,12 @@ func (b *block) render(r *renderCtx, ox, y float64) {
 		x, y = x-b.b[3].w-b.p[3], y-b.topDeco()
 	}
 	r.drawBlockDecor(b, x, y, h)
-	if free := h - nat; free > 0 {
+	// display-align distributes the space left over below the natural content
+	natural := b.topDeco() + b.contentHeight() + b.botDeco()
+	if b.displayAlign != "" && b.displayAlign != "before" && natural > nat {
+		natural = nat
+	}
+	if free := h - natural; free > 0 {
 		switch b.displayAlign {
 		case "center":
 			cy += free / 2

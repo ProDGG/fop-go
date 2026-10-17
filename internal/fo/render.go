@@ -83,6 +83,10 @@ func (r *renderCtx) drawGlyphs(st *textStyle, ft *font.Font, x, baseline float64
 }
 
 func (r *renderCtx) drawImage(ib *imageBox, x, y float64) {
+	if ib.blk != nil {
+		ib.blk.render(r, x, y)
+		return
+	}
 	if ib.img.svg != nil {
 		if ib.clip {
 			r.clipStart(x, y, ib.w, ib.h)
