@@ -1,7 +1,5 @@
 package fo
 
-import "math"
-
 // rotItem draws a block-container whose content is rotated by
 // reference-orientation (90, 180 or 270 degrees counter-clockwise).
 type rotItem struct {
@@ -10,6 +8,7 @@ type rotItem struct {
 	rot      int
 	spB, spA []spc
 	kNext    bool
+	sx, sy   float64 // offset of the border box from the content origin
 }
 
 func (r *rotItem) height() float64                    { return r.h }
@@ -25,7 +24,7 @@ func (r *rotItem) split(float64, bool) (vitem, vitem) { return nil, nil }
 func (r *rotItem) forcedSplit() (vitem, vitem, brk)   { return nil, nil, brkNone }
 
 func (r *rotItem) render(rc *renderCtx, ox, y float64) {
-	X, Yt, w, h := ox, y, r.w, r.h
+	X, Yt, w, h := ox+r.sx, y+r.sy, r.w, r.h
 	H := rc.pageH
 	rc.pg.Save()
 	switch r.rot {
@@ -41,37 +40,31 @@ func (r *rotItem) render(rc *renderCtx, ox, y float64) {
 }
 
 // layoutRotated lays out a block-container with a non-zero reference-orientation.
-// widthOverride, when non-nil, is the container width (absolute positioning).
-func (lc *lctx) layoutRotated(n *Node, rot int, widthOverride *float64) vitem {
+// As in FOP, width and height are the content's inline- and block-progression
+// dimensions in the rotated frame; on the page a 90/270 degree container is
+// bpd wide and ipd tall. absW, when non-nil, is the border-box width of an
+// absolutely positioned container.
+func (lc *lctx) layoutRotated(n *Node, rot int, absW *float64) vitem {
 	cw := lc.contentW()
 	b := newBlock()
 	lc.boxProps(n, b, cw)
-	var w float64
-	if widthOverride != nil {
-		w = *widthOverride
+	decoI := b.p[3] + b.b[3].w + b.p[1] + b.b[1].w
+	decoB := b.topDeco() + b.botDeco()
+	var ipd float64 // border-box size along the rotated inline direction
+	if absW != nil {
+		ipd = *absW
 	} else if v, ok := lc.length(n, "width", cw); ok {
-		w = v
+		ipd = v + decoI
 	} else if v, ok := lc.length(n, "inline-progression-dimension", cw); ok {
-		w = v
+		ipd = v + decoI
 	} else {
-		w = cw
+		ipd = cw
 	}
 	h, hasH := lc.length(n, "height", lc.refH)
 	if !hasH {
 		h, hasH = lc.length(n, "block-progression-dimension", lc.refH)
 	}
-	// inline progression of the content runs along the container's width for
-	// 0/180 degrees and along its height for 90/270
-	ipd := w
-	if rot%180 != 0 {
-		if hasH {
-			ipd = h
-		} else {
-			ipd = w
-			h = w
-		}
-	}
-	inner := ipd - b.p[3] - b.b[3].w - b.p[1] - b.b[1].w
+	inner := ipd - decoI
 	if inner < 1 {
 		inner = 1
 	}
@@ -84,21 +77,32 @@ func (lc *lctx) layoutRotated(n *Node, rot int, widthOverride *float64) vitem {
 	b.children = bb.items
 	b.fillGaps()
 	b.spB, b.spA = nil, nil
-	item := &rotItem{content: b, rot: rot, spB: lc.spaces(n, "space-before"), spA: lc.spaces(n, "space-after"), kNext: isKeep(n.Props["keep-with-next"])}
-	ch := b.height()
+	bpd := b.height()
+	if hasH {
+		bpd = h + decoB
+		b.minH = bpd
+		b.fixedH = true
+	}
+	// FOP places the content rectangle at the container's origin; border and padding
+	// stick out to the page-left (and, when absolutely positioned, page-top) side
+	deco := func(i int) float64 { return b.b[i].w + b.p[i] }
+	var left, top int
+	switch rot {
+	case 90:
+		left, top = 0, 1
+	case 180:
+		left, top = 1, 2
+	default:
+		left, top = 2, 3
+	}
+	item := &rotItem{content: b, sx: -deco(left), rot: rot, spB: lc.spaces(n, "space-before"), spA: lc.spaces(n, "space-after"), kNext: isKeep(n.Props["keep-with-next"])}
+	if absW != nil {
+		item.sy = -deco(top)
+	}
 	if rot%180 == 0 {
-		item.w = w
-		item.h = ch
-		if hasH {
-			item.h = math.Max(h, ch)
-			b.minH = item.h
-		}
+		item.w, item.h = ipd, bpd
 	} else {
-		item.w = math.Max(w, ch)
-		item.h = h
-		if widthOverride == nil && w > cw {
-			item.w = w
-		}
+		item.w, item.h = bpd, ipd
 	}
 	return item
 }

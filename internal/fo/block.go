@@ -339,12 +339,14 @@ func (b *block) render(r *renderCtx, ox, y float64) {
 	if b.first && len(b.markers) > 0 {
 		r.addMarkers(b.markers)
 	}
-	r.drawBlockDecor(b, x, y, h)
 	cx := x + b.b[3].w + b.p[3]
 	cy := y + b.topDeco()
 	if b.noInset {
+		// the content origin is the given position; border and padding extend outwards
 		cx, cy = x, y
+		x, y = x-b.b[3].w-b.p[3], y-b.topDeco()
 	}
+	r.drawBlockDecor(b, x, y, h)
 	if free := h - nat; free > 0 {
 		switch b.displayAlign {
 		case "center":

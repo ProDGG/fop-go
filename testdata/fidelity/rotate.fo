@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block>Before rotated block.</fo:block>
+<fo:block-container reference-orientation="90" height="120pt" width="200pt" border="1pt solid red">
+ <fo:block>Rotated by ninety degrees: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod</fo:block>
+</fo:block-container>
+<fo:block>After rotated block.</fo:block>
+<fo:block-container reference-orientation="180" height="60pt" width="200pt" border="1pt solid blue">
+ <fo:block>Upside down text lorem ipsum</fo:block>
+</fo:block-container>
+<fo:block>After 180.</fo:block>
+<fo:block-container reference-orientation="270" height="100pt" width="150pt" border="1pt solid green">
+ <fo:block>Rotated 270 lorem ipsum dolor sit amet</fo:block>
+</fo:block-container>
+<fo:block>After 270.</fo:block>
+<fo:block-container absolute-position="absolute" top="500pt" left="100pt" reference-orientation="90" width="100pt" height="150pt" border="1pt solid black">
+ <fo:block>Abs rotated lorem ipsum dolor sit amet</fo:block>
+</fo:block-container>
+<fo:block-container absolute-position="absolute" top="500pt" left="300pt" width="100pt" height="50pt" padding="5pt" border="2pt solid black">
+ <fo:block>Abs padded</fo:block>
+</fo:block-container>
+</fo:flow></fo:page-sequence></fo:root>
