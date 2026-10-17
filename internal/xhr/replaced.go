@@ -3,6 +3,7 @@ package xhr
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -102,16 +103,18 @@ func (c *ImageCache) load(uri string) *Image {
 		}
 		meta, payload := uri[5:i], uri[i+1:]
 		if strings.HasSuffix(meta, ";base64") {
-			s := strings.Map(func(r rune) rune {
-				if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
-					return -1
-				}
-				return r
-			}, payload)
-			d, err := base64.StdEncoding.DecodeString(s)
+			d, err := javaBase64(payload)
 			if err != nil {
-				d, err = base64.RawStdEncoding.DecodeString(strings.TrimRight(s, "="))
-				if err != nil {
+				// Flying Saucer decodes with java.util.Base64.getDecoder(), which rejects
+				// line breaks; vector images are handled by a separate (tolerant) loader
+				lenient := strings.Map(func(r rune) rune {
+					if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+						return -1
+					}
+					return r
+				}, payload)
+				d, err = javaBase64(lenient)
+				if err != nil || !bytes.HasPrefix(bytes.TrimSpace(d), []byte("<")) {
 					return nil
 				}
 			}
@@ -234,3 +237,28 @@ func (d *Doc) createReplacedElement(lc *LayoutContext, b *Box, cssWidth, cssHeig
 	}
 	return nil
 }
+
+// javaBase64 mirrors java.util.Base64.getDecoder().decode: only the standard
+// alphabet, no whitespace, optional padding.
+func javaBase64(s string) ([]byte, error) {
+	pad := 0
+	for pad < len(s) && s[len(s)-1-pad] == '=' {
+		pad++
+	}
+	if pad > 2 || (pad > 0 && len(s)%4 != 0) {
+		return nil, errBase64
+	}
+	body := s[:len(s)-pad]
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/') {
+			return nil, errBase64
+		}
+	}
+	if len(body)%4 == 1 {
+		return nil, errBase64
+	}
+	return base64.RawStdEncoding.DecodeString(body)
+}
+
+var errBase64 = errors.New("illegal base64 character")
