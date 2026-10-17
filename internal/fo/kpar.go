@@ -1,6 +1,10 @@
 package fo
 
-import "math"
+import (
+	"math"
+
+	"github.com/ProDGG/fop-go/internal/pdf"
+)
 
 // Paragraph element generation and line assembly: a port of the relevant parts of
 // Apache FOP's TextLayoutManager, LeaderLayoutManager and
@@ -147,7 +151,25 @@ func (lc *lctx) breakParagraph(atoms []atom, po paraOpts, firstInBlock bool, act
 		case aWord:
 			w := mpt(a.w)
 			ls := mpt(a.style.ls)
-			if a.breakAfter && ls != 0 {
+			// FOP counts length-1 letter spaces for a word; the last one is only added
+			// when more text follows without a space (addALetterSpaceTo)
+			trailing := false
+			if ls != 0 && !a.breakAfter {
+				trailing = true
+				for j := i + 1; j < len(atoms); j++ {
+					switch atoms[j].kind {
+					case aOpen, aClose, aAnchor:
+						continue
+					case aGlue, aBreak:
+						trailing = false
+					}
+					break
+				}
+				if i == len(atoms)-1 {
+					trailing = false
+				}
+			}
+			if ls != 0 && (a.breakAfter || !trailing) {
 				els = append(els, boxEl(w-ls, i, false))
 			} else {
 				els = append(els, boxEl(w, i, false))
@@ -342,6 +364,34 @@ func (lc *lctx) assembleLine(els []kelem, atoms []atom, rc lineRec, ratio float6
 		break
 	}
 	_ = hyAtom
+	// the last letter space of a word is only reserved when text follows it directly
+	for k := range seq {
+		a := &seq[k]
+		if a.kind != aWord || a.breakAfter || mpt(a.style.ls) == 0 {
+			continue
+		}
+		trailing := false
+		for j := k + 1; j < len(seq); j++ {
+			if c := seq[j].kind; c == aOpen || c == aClose || c == aAnchor {
+				continue
+			}
+			trailing = seq[j].kind != aGlue
+			break
+		}
+		if !trailing && len(a.runs) > 0 {
+			ls := a.style.ls
+			runs := append([]textRun(nil), a.runs...)
+			last := &runs[len(runs)-1]
+			last.glyphs = append([]pdf.Glyph(nil), last.glyphs...)
+			if n := len(last.glyphs); n > 0 {
+				last.glyphs[n-1].Extra -= ls
+			}
+			last.wm -= mpt(ls)
+			last.width = float64(last.wm) / 1000
+			a.runs = runs
+			a.w = runsWidth(runs)
+		}
+	}
 	return lc.buildLine(seq, po, x0, showHyphen, hyAtom, active)
 }
 

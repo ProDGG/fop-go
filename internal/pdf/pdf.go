@@ -159,7 +159,7 @@ func (p *Page) LineWidth(w float64) { p.op("%s w", Num(w)) }
 
 // Dash sets a dash pattern (nil = solid).
 func (p *Page) Dash(on, off float64) {
-	if on <= 0 {
+	if on < 0 || off <= 0 {
 		p.op("[] 0 d")
 		return
 	}
