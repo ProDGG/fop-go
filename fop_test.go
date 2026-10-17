@@ -190,3 +190,15 @@ func TestFontFlag(t *testing.T) {
 		t.Error("expected error")
 	}
 }
+
+func TestSVGAndFootnote(t *testing.T) {
+	body := `<fo:block>x<fo:footnote><fo:inline>1</fo:inline><fo:footnote-body><fo:block>note body</fo:block></fo:footnote-body></fo:footnote>
+<fo:instream-foreign-object><svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"><circle cx="25" cy="25" r="20" fill="red"/><text x="5" y="45">hi</text></svg></fo:instream-foreign-object></fo:block>`
+	out := render(t, body)
+	if !bytes.Contains(out, []byte(" c\n")) {
+		t.Error("SVG circle was not drawn as curves")
+	}
+	if !bytes.Contains(out, []byte("1 0 0 rg")) {
+		t.Error("SVG fill colour missing")
+	}
+}

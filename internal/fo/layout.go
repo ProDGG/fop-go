@@ -4,6 +4,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/ProDGG/fop-go/xmldom"
 )
 
 // lctx is the layout context for the content of one reference area.
@@ -437,7 +439,10 @@ func (bb *blockBuilder) node(c *Node) {
 			ib.addBox(a)
 		}
 	case "instream-foreign-object":
-		e.warn("fo:instream-foreign-object is not supported (skipped)")
+		bb.anchor(c)
+		if a, ok := lc.foreignAtom(c); ok {
+			ib.addBox(a)
+		}
 	case "leader":
 		bb.anchor(c)
 		ib.addBox(lc.leaderAtom(c))
@@ -854,6 +859,34 @@ func (lc *lctx) graphicAtom(c *Node) (atom, bool) {
 		e.warn("image %q: %v", unwrapURL(src), err)
 		return atom{}, false
 	}
+	return lc.graphicAtomFor(c, im)
+}
+
+// foreignAtom builds the inline box of an fo:instream-foreign-object holding SVG.
+func (lc *lctx) foreignAtom(c *Node) (atom, bool) {
+	if c.Src == nil {
+		return atom{}, false
+	}
+	for _, ch := range c.Src.Children {
+		if ch.Type != xmldom.ElementNode {
+			continue
+		}
+		if ch.Name == "svg" && ch.URI == svgNS {
+			im, err := lc.e.parseSVG(ch)
+			if err != nil {
+				lc.e.warn("instream-foreign-object: %v", err)
+				return atom{}, false
+			}
+			return lc.graphicAtomFor(c, im)
+		}
+		lc.e.warn("instream-foreign-object: unsupported content <%s> ignored", ch.Name)
+		return atom{}, false
+	}
+	return atom{}, false
+}
+
+func (lc *lctx) graphicAtomFor(c *Node, im *imageData) (atom, bool) {
+	e := lc.e
 	cw := lc.contentW()
 	ow, oh := im.wPt, im.hPt
 	vw, vh := -1.0, -1.0

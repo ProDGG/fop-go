@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ProDGG/fop-go/internal/pdf"
+	"github.com/ProDGG/fop-go/xmldom"
 )
 
 type imageData struct {
@@ -28,6 +29,7 @@ type imageData struct {
 	hPt    float64
 	img    *pdf.Image
 	hasSVG bool
+	svg    *svgDoc
 }
 
 func (e *Engine) readSource(src string) ([]byte, error) {
@@ -94,7 +96,12 @@ func (e *Engine) loadImage(src string) (*imageData, error) {
 		e.images[key] = nil
 		return nil, err
 	}
-	im, err := decodeImage(data)
+	var im *imageData
+	if t := bytes.TrimSpace(data); len(t) > 0 && t[0] == '<' {
+		im, err = e.decodeSVG(data)
+	} else {
+		im, err = decodeImage(data)
+	}
 	if err != nil {
 		e.images[key] = nil
 		return nil, err
@@ -102,6 +109,19 @@ func (e *Engine) loadImage(src string) (*imageData, error) {
 	im.src = key
 	e.images[key] = im
 	return im, nil
+}
+
+func (e *Engine) decodeSVG(data []byte) (*imageData, error) {
+	doc, err := xmldom.Parse(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range doc.Children {
+		if c.Type == xmldom.ElementNode && c.Name == "svg" {
+			return e.parseSVG(c)
+		}
+	}
+	return nil, fmt.Errorf("not an SVG document")
 }
 
 func decodeImage(data []byte) (*imageData, error) {

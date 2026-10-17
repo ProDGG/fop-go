@@ -83,6 +83,14 @@ func (r *renderCtx) drawGlyphs(st *textStyle, ft *font.Font, x, baseline float64
 }
 
 func (r *renderCtx) drawImage(ib *imageBox, x, y float64) {
+	if ib.img.svg != nil {
+		if ib.clip {
+			r.clipStart(x, y, ib.w, ib.h)
+			defer r.clipEnd()
+		}
+		r.drawSVG(ib.img.svg, x, y, ib.cw, ib.ch)
+		return
+	}
 	im := r.e.pdfImage(r.doc, ib.img)
 	if ib.clip {
 		r.clipStart(x, y, ib.w, ib.h)

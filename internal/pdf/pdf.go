@@ -33,6 +33,8 @@ type Document struct {
 	fontBy map[*font.Font]*Font
 	images []*Image
 	imgBy  map[string]*Image
+
+	shadings []*Shading
 }
 
 // NewDocument creates an empty document.
@@ -108,13 +110,15 @@ type Page struct {
 	buf           bytes.Buffer
 	fonts         map[*Font]bool
 	images        map[*Image]bool
+	shadings      map[*Shading]bool
+	gstates       map[string]string // name -> dict
 	Annots        []Annot
 	doc           *Document
 }
 
 // NewPage appends a page of the given size in points.
 func (d *Document) NewPage(w, h float64) *Page {
-	p := &Page{Width: w, Height: h, fonts: map[*Font]bool{}, images: map[*Image]bool{}, doc: d}
+	p := &Page{Width: w, Height: h, fonts: map[*Font]bool{}, images: map[*Image]bool{}, shadings: map[*Shading]bool{}, gstates: map[string]string{}, doc: d}
 	d.Pages = append(d.Pages, p)
 	return p
 }
@@ -188,6 +192,93 @@ func (p *Page) Fill() { p.buf.WriteString("f\n") }
 
 // Stroke strokes the current path.
 func (p *Page) Stroke() { p.buf.WriteString("S\n") }
+
+// CurveTo adds a cubic Bezier segment.
+func (p *Page) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
+	p.op("%s %s %s %s %s %s c", Num(x1), Num(y1), Num(x2), Num(y2), Num(x3), Num(y3))
+}
+
+// FillEO fills with the even-odd rule.
+func (p *Page) FillEO() { p.buf.WriteString("f*\n") }
+
+// FillStroke fills and strokes the current path.
+func (p *Page) FillStroke() { p.buf.WriteString("B\n") }
+
+// FillStrokeEO fills (even-odd) and strokes the current path.
+func (p *Page) FillStrokeEO() { p.buf.WriteString("B*\n") }
+
+// ClipEO intersects the clip region using the even-odd rule.
+func (p *Page) ClipEO() { p.buf.WriteString("W* n\n") }
+
+// EndPath ends the current path without painting.
+func (p *Page) EndPath() { p.buf.WriteString("n\n") }
+
+// LineJoin sets the line join style (0 miter, 1 round, 2 bevel).
+func (p *Page) LineJoin(j int) { p.op("%d j", j) }
+
+// MiterLimit sets the miter limit.
+func (p *Page) MiterLimit(m float64) { p.op("%s M", Num(m)) }
+
+// DashArray sets an arbitrary dash pattern.
+func (p *Page) DashArray(a []float64, phase float64) {
+	if len(a) == 0 {
+		p.op("[] 0 d")
+		return
+	}
+	var sb strings.Builder
+	for i, v := range a {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(Num(v))
+	}
+	p.op("[%s] %s d", sb.String(), Num(phase))
+}
+
+// SetAlpha sets the fill and stroke opacity through an ExtGState.
+func (p *Page) SetAlpha(fill, stroke float64) {
+	dict := fmt.Sprintf("<< /Type /ExtGState /ca %s /CA %s >>", Num(fill), Num(stroke))
+	name := ""
+	for n, d := range p.gstates {
+		if d == dict {
+			name = n
+		}
+	}
+	if name == "" {
+		name = "GS" + strconv.Itoa(len(p.gstates)+1)
+		p.gstates[name] = dict
+	}
+	p.op("/%s gs", name)
+}
+
+// GradStop is one colour stop of a gradient.
+type GradStop struct {
+	Off     float64
+	R, G, B float64
+}
+
+// Shading is an axial or radial gradient used as a fill pattern. Matrix maps the
+// gradient's coordinate space to the default coordinate space of the page.
+type Shading struct {
+	Radial bool
+	Coords []float64
+	Stops  []GradStop
+	Matrix [6]float64
+	name   string
+}
+
+// AddShading registers a gradient with the document.
+func (d *Document) AddShading(sh *Shading) *Shading {
+	sh.name = "Sh" + strconv.Itoa(len(d.shadings)+1)
+	d.shadings = append(d.shadings, sh)
+	return sh
+}
+
+// FillShading selects the gradient as the fill colour.
+func (p *Page) FillShading(sh *Shading) {
+	p.shadings[sh] = true
+	p.op("/Pattern cs /%s scn", sh.name)
+}
 
 // Clip intersects the clip region with the current path.
 func (p *Page) Clip() { p.buf.WriteString("W n\n") }
@@ -363,6 +454,11 @@ func (d *Document) Write(out io.Writer) error {
 		imgObjs[im] = d.writeImage(w, im)
 	}
 
+	shadingObjs := map[*Shading]int{}
+	for _, sh := range d.shadings {
+		shadingObjs[sh] = w.add([]byte(shadingDict(sh)))
+	}
+
 	for i, p := range d.Pages {
 		contents := w.add(d.stream("", p.buf.Bytes(), false))
 		var res strings.Builder
@@ -388,6 +484,30 @@ func (d *Document) Write(out io.Writer) error {
 			sort.Slice(is, func(a, b int) bool { return is[a].name < is[b].name })
 			for _, im := range is {
 				fmt.Fprintf(&res, " /%s %d 0 R", im.name, imgObjs[im])
+			}
+			res.WriteString(" >>")
+		}
+		if len(p.shadings) > 0 {
+			res.WriteString(" /Pattern <<")
+			var ss []*Shading
+			for sh := range p.shadings {
+				ss = append(ss, sh)
+			}
+			sort.Slice(ss, func(a, b int) bool { return ss[a].name < ss[b].name })
+			for _, sh := range ss {
+				fmt.Fprintf(&res, " /%s %d 0 R", sh.name, shadingObjs[sh])
+			}
+			res.WriteString(" >>")
+		}
+		if len(p.gstates) > 0 {
+			res.WriteString(" /ExtGState <<")
+			var ns []string
+			for n := range p.gstates {
+				ns = append(ns, n)
+			}
+			sort.Strings(ns)
+			for _, n := range ns {
+				fmt.Fprintf(&res, " /%s %s", n, p.gstates[n])
 			}
 			res.WriteString(" >>")
 		}
@@ -597,4 +717,41 @@ func (d *Document) writeFont(w *writer, f *Font, idx int) int {
 
 	return w.add([]byte(fmt.Sprintf("<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R] /ToUnicode %d 0 R >>",
 		baseName, cid, toUni)))
+}
+
+func shadingDict(sh *Shading) string {
+	var fn string
+	col := func(g GradStop) string { return Num(g.R) + " " + Num(g.G) + " " + Num(g.B) }
+	st := sh.Stops
+	if len(st) == 1 {
+		st = append(st, st[0])
+	}
+	if len(st) == 2 {
+		fn = fmt.Sprintf("<< /FunctionType 2 /Domain [0 1] /C0 [%s] /C1 [%s] /N 1 >>", col(st[0]), col(st[1]))
+	} else {
+		var fns, bounds, enc []string
+		for i := 0; i+1 < len(st); i++ {
+			fns = append(fns, fmt.Sprintf("<< /FunctionType 2 /Domain [0 1] /C0 [%s] /C1 [%s] /N 1 >>", col(st[i]), col(st[i+1])))
+			enc = append(enc, "0 1")
+			if i > 0 {
+				bounds = append(bounds, Num(st[i].Off))
+			}
+		}
+		fn = fmt.Sprintf("<< /FunctionType 3 /Domain [0 1] /Functions [%s] /Bounds [%s] /Encode [%s] >>",
+			strings.Join(fns, " "), strings.Join(bounds, " "), strings.Join(enc, " "))
+	}
+	var cs []string
+	for _, c := range sh.Coords {
+		cs = append(cs, Num(c))
+	}
+	typ := 2
+	if sh.Radial {
+		typ = 3
+	}
+	var m []string
+	for _, v := range sh.Matrix {
+		m = append(m, strconv.FormatFloat(v, 'f', 5, 64))
+	}
+	return fmt.Sprintf("<< /PatternType 2 /Matrix [%s] /Shading << /ShadingType %d /ColorSpace /DeviceRGB /Coords [%s] /Function %s /Extend [true true] >> >>",
+		strings.Join(m, " "), typ, strings.Join(cs, " "), fn)
 }
