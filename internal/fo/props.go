@@ -369,6 +369,8 @@ func setProps(attrs [][2]string) map[string]string {
 					props["padding-"+s] = v[i]
 				}
 			}
+		case "border-spacing":
+			props["border-separation"] = val
 		case "border":
 			expandBorder(props, sideNames, val)
 		case "border-top", "border-right", "border-bottom", "border-left":
@@ -408,7 +410,7 @@ func setProps(attrs [][2]string) map[string]string {
 		switch name {
 		case "margin", "padding", "border", "border-top", "border-right", "border-bottom", "border-left",
 			"border-before", "border-after", "border-start", "border-end", "border-width", "border-style",
-			"border-color", "background", "font", "page-break-before", "page-break-after", "page-break-inside":
+			"border-color", "border-spacing", "background", "font", "page-break-before", "page-break-after", "page-break-inside":
 			continue
 		}
 		switch name {

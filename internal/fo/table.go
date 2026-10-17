@@ -44,6 +44,7 @@ type rowBox struct {
 	h        float64
 	spBefore float64 // border-separation (kept at breaks)
 	spAfter  float64
+	pad      float64 // border-separation.block-progression-dimension (half above, half below the cells)
 	kNext    bool
 	kTogeth  bool
 	noSplit  bool
@@ -86,12 +87,14 @@ func (rb *rowBox) setHeights() {
 			c.blk.forceH = rb.h
 		}
 	}
+	rb.h += rb.pad
 }
 
 func (rb *rowBox) split(avail float64, force bool) (vitem, vitem) {
 	if (rb.noSplit || rb.kTogeth) && !force {
 		return nil, nil
 	}
+	avail -= rb.pad
 	n := len(rb.cells)
 	heads := make([]*block, n)
 	tails := make([]*block, n)
@@ -119,8 +122,8 @@ func (rb *rowBox) split(avail float64, force bool) (vitem, vitem) {
 	if !anyTail {
 		return nil, nil
 	}
-	headRow := &rowBox{h: maxH, spBefore: rb.spBefore, kNext: false, bBefore: rb.bBefore, ids: rb.ids}
-	tailRow := &rowBox{spAfter: rb.spAfter, kNext: rb.kNext, bAfter: rb.bAfter}
+	headRow := &rowBox{h: maxH + rb.pad, pad: rb.pad, spBefore: rb.spBefore, kNext: false, bBefore: rb.bBefore, ids: rb.ids}
+	tailRow := &rowBox{pad: rb.pad, spAfter: rb.spAfter, kNext: rb.kNext, bAfter: rb.bAfter}
 	for i, c := range rb.cells {
 		heads[i].forceH = maxH
 		headRow.cells = append(headRow.cells, rowCell{c.x, heads[i]})
@@ -142,7 +145,7 @@ func (rb *rowBox) render(r *renderCtx, ox, y float64) {
 		r.registerID(id, y)
 	}
 	for _, c := range rb.cells {
-		c.blk.render(r, ox+c.x, y)
+		c.blk.render(r, ox+c.x, y+rb.pad/2)
 	}
 }
 
@@ -393,10 +396,7 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 	}
 
 	// ---- column widths ----
-	avail := tw - hsep*float64(ncols+1)
-	if collapse {
-		avail = tw
-	}
+	avail := tw // FOP does not subtract border-separation from the column widths
 	fixed, propSum := 0.0, 0.0
 	autoN := 0
 	for _, c := range cols {
@@ -442,10 +442,10 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 	}
 	// grid
 	cumX := make([]float64, ncols+1)
-	x := hsep
+	x := 0.0
 	for i, c := range cols {
 		cumX[i] = x
-		x += c.w + hsep
+		x += c.w
 	}
 	cumX[ncols] = x
 	// assign cell geometry
@@ -455,11 +455,8 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 			if end > ncols {
 				end = ncols
 			}
-			c.x = cumX[c.col]
-			c.w = cumX[end] - hsep - cumX[c.col]
-			if collapse {
-				c.w = cumX[end] - cumX[c.col]
-			}
+			c.x = cumX[c.col] + hsep/2
+			c.w = cumX[end] - cumX[c.col] - hsep
 		}
 	}
 
@@ -618,7 +615,7 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 	// ---- assemble ----
 	var hdr, body, ftr []vitem
 	for ri, r := range rows {
-		rb := &rowBox{h: r.h, spBefore: vsep, spAfter: vsep}
+		rb := &rowBox{h: r.h + vsep, pad: vsep}
 		if r.node != nil {
 			rb.kNext = isKeep(r.node.Props["keep-with-next"])
 			rb.kTogeth = isKeep(r.node.Get("keep-together"))
@@ -665,17 +662,7 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 	b.ftr = ftr
 	b.repeatHdr = n.Props["table-omit-header-at-break"] != "true"
 	b.repeatFtr = n.Props["table-omit-footer-at-break"] != "true"
-	b.hdrGaps = make([]float64, len(hdr))
-	for i := range hdr {
-		b.hdrGaps[i] = vsep
-	}
-	b.left += 0
 	b.fillGaps()
-	if len(hdr) > 0 {
-		if len(body) > 0 {
-			b.gaps[0] = vsep
-		}
-	}
 	if len(body) == 0 {
 		b.children = nil
 		b.gaps = nil
