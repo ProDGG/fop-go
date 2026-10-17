@@ -412,6 +412,12 @@ func setProps(attrs [][2]string) map[string]string {
 			continue
 		}
 		switch name {
+		case "keep-together":
+			// the unqualified shorthand also sets keep-together.within-line (inherited),
+			// which forbids line breaks inside the text, as in FOP
+			if isKeep(val) {
+				props["\x00ktline"] = "1"
+			}
 		case "margin-left":
 			props["\x00ml"] = "1" // explicit (not via the margin shorthand): forces start-indent to be derived from it
 		case "margin-right":

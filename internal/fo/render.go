@@ -127,27 +127,7 @@ func (r *renderCtx) drawBorders(x, y, w, h float64, b [4]border, centered bool) 
 		c := b[i].c
 		switch b[i].style {
 		case "dashed", "dotted":
-			r.pg.Save()
-			r.pg.StrokeRGB(c.R, c.G, c.B)
-			th := b[i].w
-			r.pg.LineWidth(th)
-			if b[i].style == "dashed" {
-				r.pg.Dash(th*3, th*2)
-			} else {
-				r.pg.LineCap(1)
-				r.pg.Dash(0.01, th*2)
-			}
-			if i%2 == 0 {
-				cy := by + bh/2
-				r.pg.MoveTo(bx, r.py(cy))
-				r.pg.LineTo(bx+bw, r.py(cy))
-			} else {
-				cx := bx + bw/2
-				r.pg.MoveTo(cx, r.py(by))
-				r.pg.LineTo(cx, r.py(by+bh))
-			}
-			r.pg.Stroke()
-			r.pg.Restore()
+			r.styledLine(bx, by, bx+bw, by+bh, i%2 == 0, b[i].style, c)
 		case "double":
 			third := b[i].w / 3
 			if i%2 == 0 {
@@ -213,32 +193,83 @@ func (r *renderCtx) drawBackgroundImage(b *block, x, y, w, h float64) {
 	}
 }
 
+// styledLine ports PDFGraphicsPainter.drawBorderLine2 for the dashed, dotted
+// and double styles; (x1,y1)-(x2,y2) is the line's box in top-down page units.
+func (r *renderCtx) styledLine(x1, y1, x2, y2 float64, horz bool, style string, c Color) {
+	w, h := x2-x1, y2-y1
+	stroke := func(ax, ay, bx, by float64) {
+		r.pg.MoveTo(ax, r.py(ay))
+		r.pg.LineTo(bx, r.py(by))
+		r.pg.Stroke()
+	}
+	r.pg.Save()
+	defer r.pg.Restore()
+	r.pg.StrokeRGB(c.R, c.G, c.B)
+	// along/across: length of the line and its thickness
+	along, across := w, h
+	if !horz {
+		along, across = h, w
+	}
+	line := func(off float64, wd float64) {
+		r.pg.LineWidth(wd)
+		if horz {
+			stroke(x1, y1+off, x2, y1+off)
+		} else {
+			stroke(x1+off, y1, x1+off, y2)
+		}
+	}
+	switch style {
+	case "dashed":
+		dash := 2 * across
+		if across < 3 {
+			dash = 6 * across
+		}
+		period := int((along - dash) / dash / 1.5)
+		if period < 0 {
+			period = 0
+		}
+		dw := along / (float64(period)*1.5 + 1)
+		if dw == 0 {
+			return
+		}
+		r.pg.Dash(dw, 0.5*dw)
+		line(across/2, across)
+	case "dotted", "square":
+		unit := math.Abs(2 * across)
+		rep := int(along / unit)
+		if rep%2 == 0 {
+			rep++
+		}
+		unit = along / float64(rep)
+		if style == "dotted" {
+			r.pg.LineCap(1)
+		} else {
+			r.pg.LineCap(2)
+		}
+		r.pg.Dash(0, unit)
+		line(across/2, across)
+	case "double":
+		t := across / 3
+		line(t/2, t)
+		line(t/2+2*t, t)
+	}
+}
+
 func (r *renderCtx) drawLeader(ld *leaderSpec, x, baseline, w float64) {
 	switch ld.pattern {
 	case "rule":
 		th := ld.thickness
 		c := ld.color
+		// PDFGraphicsPainter.drawLine: the line box is [baseline-th, baseline]
 		switch ld.rstyle {
-		case "dashed", "dotted":
-			r.pg.Save()
-			r.pg.StrokeRGB(c.R, c.G, c.B)
-			r.pg.LineWidth(th)
-			if ld.rstyle == "dashed" {
-				r.pg.Dash(th*3, th*2)
-			} else {
-				r.pg.LineCap(1)
-				r.pg.Dash(0.01, th*2)
-			}
-			r.pg.MoveTo(x, r.py(baseline-th))
-			r.pg.LineTo(x+w, r.py(baseline-th))
-			r.pg.Stroke()
-			r.pg.Restore()
-		case "double":
-			r.fillRect(x, baseline-th*1.2, w, th/3, c)
-			r.fillRect(x, baseline-th*0.5, w, th/3, c)
 		case "none":
+		case "dotted", "square":
+			half := th / 2
+			r.styledLine(x+th+half, baseline-th, x+w-th-half, baseline, true, ld.rstyle, c)
+		case "dashed", "double":
+			r.styledLine(x, baseline-th, x+w, baseline, true, ld.rstyle, c)
 		default:
-			r.fillRect(x, baseline-th*1.5, w, th, c)
+			r.fillRect(x, baseline-th, w, th, c)
 		}
 	case "dots", "use-content":
 		if len(ld.patRuns) == 0 || ld.patW <= 0 {
@@ -249,8 +280,7 @@ func (r *renderCtx) drawLeader(ld *leaderSpec, x, baseline, w float64) {
 			return
 		}
 		cellW := runsWidth(ld.patRuns)
-		slack := w - float64(n)*ld.patW // pattern is right-aligned in the leader area
-		cx := x + slack
+		cx := x // FilledArea draws whole units from the start of the area
 		for i := 0; i < n; i++ {
 			for k, rr := range ld.patRuns {
 				gl := append([]pdf.Glyph(nil), rr.glyphs...)

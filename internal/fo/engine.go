@@ -274,6 +274,12 @@ func (e *Engine) styleFor(n *Node) *textStyle {
 	if el.Get("wrap-option") == "no-wrap" {
 		st.nowrap = true
 	}
+	for c := el; c != nil; c = c.Parent {
+		if c.Props["\x00ktline"] == "1" {
+			st.nowrap = true
+			break
+		}
+	}
 	// link target inherited from enclosing basic-link
 	for c := el; c != nil; c = c.Parent {
 		if c.Name == "basic-link" {

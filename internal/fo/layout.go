@@ -930,13 +930,15 @@ func (lc *lctx) leaderAtom(c *Node) atom {
 		}
 		return def
 	}
-	opt := 12.0
+	// A bare leader-length="L" yields min = opt = max = L (LengthRangeProperty);
+	// the component properties override it individually.
+	opt, minW, maxW := 12.0, 0.0, cw
 	if v, ok := lc.length(c, "leader-length", cw); ok {
-		opt = v
+		opt, minW, maxW = v, v, v
 	}
 	opt = get("leader-length.optimum", opt)
-	minW := get("leader-length.minimum", 0)
-	maxW := get("leader-length.maximum", cw)
+	minW = get("leader-length.minimum", minW)
+	maxW = get("leader-length.maximum", maxW)
 	// LeaderLayoutManager.getLeaderAllocIPD: MinOptMax(min, min(opt, max), max)
 	ld.minW, ld.maxW = minW, maxW
 	ld.optW = math.Min(opt, maxW)
@@ -945,7 +947,7 @@ func (lc *lctx) leaderAtom(c *Node) atom {
 		ld.patRuns = e.measure(st, ".")
 		if len(ld.patRuns) > 0 {
 			dot := runsWidth(ld.patRuns)
-			ld.patW = math.Max(2*dot, get("leader-pattern-width", 0))
+			ld.patW = math.Max(dot, get("leader-pattern-width", 0))
 		}
 	case "use-content":
 		txt := c.TextContent()
