@@ -37,6 +37,9 @@ type atom struct {
 	fixed      bool // non-collapsible, non-stretchable space (preserved text)
 	hyphen     []textRun
 	hyphenW    float64
+	stretch    int // adjustability in millipoints (spaces, leaders)
+	shrink     int
+	nb         bool // non-breaking space
 	rise       float64
 	text       string // for words: the source text (used when splitting overlong words)
 }
@@ -131,9 +134,24 @@ func (ib *inlineBuilder) reset() {
 	ib.atStart = true
 }
 
+// spaceAtom builds a space glue the way FOP's TextLayoutManager does: with
+// word-spacing "normal" a space may shrink by a third and stretch by a half of its
+// width (SpaceVal.makeWordSpacing); an explicit word-spacing makes it rigid.
+func (e *Engine) spaceAtom(st *textStyle) atom {
+	s := e.spaceMpt(st)
+	a := atom{kind: aGlue, style: st, rise: st.shift}
+	if st.wsExplicit {
+		a.w = float64(s+mpt(st.ws)) / 1000
+	} else {
+		a.w = float64(s+2*mpt(st.ls)) / 1000
+		a.stretch = s / 2
+		a.shrink = s / 3
+	}
+	return a
+}
+
 func (ib *inlineBuilder) emitGlue(st *textStyle) {
-	e := ib.lc.e
-	ib.atoms = append(ib.atoms, atom{kind: aGlue, w: e.spaceWidth(st) + st.ws + st.ls, style: st, rise: st.shift})
+	ib.atoms = append(ib.atoms, ib.lc.e.spaceAtom(st))
 }
 
 func (ib *inlineBuilder) addText(n *Node, text string) {
@@ -176,7 +194,9 @@ func (ib *inlineBuilder) addText(n *Node, text string) {
 					ib.atoms = append(ib.atoms, atom{kind: aBreak, style: st})
 					ib.atStart = true
 				} else {
-					ib.atoms = append(ib.atoms, atom{kind: aGlue, w: e.spaceWidth(st), style: st, fixed: true, rise: st.shift})
+					sp := e.spaceAtom(st)
+					sp.fixed = true
+					ib.atoms = append(ib.atoms, sp)
 				}
 			case '\r':
 			case ' ', '\t':
@@ -186,7 +206,9 @@ func (ib *inlineBuilder) addText(n *Node, text string) {
 					n = 8
 				}
 				for k := 0; k < n; k++ {
-					ib.atoms = append(ib.atoms, atom{kind: aGlue, w: e.spaceWidth(st) + st.ws + st.ls, style: st, fixed: true, rise: st.shift})
+					sp := e.spaceAtom(st)
+					sp.fixed = true
+					ib.atoms = append(ib.atoms, sp)
 				}
 				ib.atStart = false
 			default:
@@ -221,6 +243,11 @@ func (ib *inlineBuilder) addRune(word *strings.Builder, r rune, st *textStyle, f
 	case r == 0x200B:
 		flush(false)
 		ib.atoms = append(ib.atoms, atom{kind: aZW, style: st})
+	case r == 0xA0:
+		flush(false)
+		sp := e.spaceAtom(st)
+		sp.nb = true
+		ib.atoms = append(ib.atoms, sp)
 	case isCJK(r):
 		flush(false)
 		word.WriteRune(r)
@@ -244,7 +271,7 @@ func (ib *inlineBuilder) addBox(a atom) {
 	ib.atoms = append(ib.atoms, a)
 }
 
-// ---------- line breaking ----------
+// ---------- line assembly ----------
 
 type paraOpts struct {
 	width     float64 // available width for lines
@@ -253,128 +280,6 @@ type paraOpts struct {
 	alignLast string
 	strut     *textStyle
 	nowrap    bool
-}
-
-func (lc *lctx) breakLines(atoms []atom, po paraOpts) []*lineBox {
-	e := lc.e
-	// trim trailing glue
-	for len(atoms) > 0 && atoms[len(atoms)-1].kind == aGlue && !atoms[len(atoms)-1].fixed {
-		atoms = atoms[:len(atoms)-1]
-	}
-	var lines []*lineBox
-	var active []*inlineDecor
-	pos := 0
-	first := true
-	for pos < len(atoms) {
-		indent := 0.0
-		if first {
-			indent = po.indent
-		}
-		avail := po.width - indent
-		if po.nowrap {
-			avail = math.MaxFloat64 / 4
-		}
-		// skip leading collapsible glue
-		for pos < len(atoms) && atoms[pos].kind == aGlue && !atoms[pos].fixed {
-			pos++
-		}
-		if pos >= len(atoms) {
-			break
-		}
-		end := pos      // exclusive end of atoms on this line
-		next := pos     // where the next line starts
-		lastBreak := -1 // candidate end index
-		lastBreakW := 0.0
-		curW := 0.0
-		forced := false
-		hyphenBreak := false
-		i := pos
-		for ; i < len(atoms); i++ {
-			a := &atoms[i]
-			if a.kind == aBreak {
-				end, next, forced = i, i+1, true
-				break
-			}
-			if a.kind == aGlue {
-				if !a.fixed || !po.nowrap {
-					if i > pos {
-						lastBreak, lastBreakW = i, curW
-					}
-				}
-				curW += a.w
-				continue
-			}
-			if a.kind == aZW {
-				if i > pos {
-					lastBreak, lastBreakW = i+1, curW
-				}
-				continue
-			}
-			if a.kind == aSoftHyphen {
-				if i > pos && curW+a.hyphenW <= avail {
-					lastBreak, lastBreakW = i+1, curW+a.hyphenW
-					hyphenBreak = true
-				}
-				continue
-			}
-			w := a.w
-			if a.kind == aLeader {
-				w = a.leader.minW
-			}
-			if curW+w > avail+0.01 && i > pos && hasContent(atoms[pos:i]) {
-				// overflow: break at last opportunity
-				if lastBreak >= 0 {
-					end, next = lastBreak, lastBreak
-					if atoms[lastBreak-1].kind == aSoftHyphen {
-						end = lastBreak
-					}
-					curW = lastBreakW
-				} else {
-					end, next = i, i
-				}
-				break
-			}
-			if curW+w > avail+0.01 && a.kind == aWord && len(a.text) > 1 && !po.nowrap {
-				// a single over-long word: split it
-				head, tail := lc.splitWord(a, avail-curW)
-				if head != nil {
-					na := make([]atom, 0, len(atoms)+1)
-					na = append(na, atoms[:i]...)
-					na = append(na, *head, *tail)
-					na = append(na, atoms[i+1:]...)
-					atoms = na
-					a = &atoms[i]
-					w = a.w
-				}
-			}
-			curW += w
-			if a.kind == aWord && a.breakAfter && i+1 < len(atoms) {
-				lastBreak, lastBreakW = i+1, curW
-			}
-			end, next = i+1, i+1
-		}
-		if i >= len(atoms) && !forced {
-			end, next = len(atoms), len(atoms)
-		}
-		_ = hyphenBreak
-		_ = e
-		lineAtoms := atoms[pos:end]
-		isLast := forced || next >= len(atoms)
-		// when we broke at a soft hyphen, show the hyphen
-		showHyphen := end > pos && atoms[end-1].kind == aSoftHyphen
-		lb := lc.buildLine(lineAtoms, po, indent, isLast, showHyphen, &active)
-		lines = append(lines, lb)
-		first = false
-		pos = next
-		if forced && pos >= len(atoms) {
-			break
-		}
-	}
-	for i, l := range lines {
-		l.idx = i
-		l.nlines = len(lines)
-	}
-	return lines
 }
 
 func hasContent(as []atom) bool {
@@ -387,135 +292,44 @@ func hasContent(as []atom) bool {
 	return false
 }
 
-// splitWord splits a long word so that the head fits within w.
-func (lc *lctx) splitWord(a *atom, w float64) (*atom, *atom) {
-	rs := []rune(a.text)
-	if len(rs) < 2 {
-		return nil, nil
+// lineMetrics computes the line height and baseline position the way
+// Apache FOP's LineLayoutManager.makeLineBreakPosition does: the leading comes from
+// the block's line-height and font, inline fonts only extend lead/follow.
+func lineMetrics(strut *textStyle, items []lineItem) (h, base float64) {
+	var lead, follow, lh int
+	if strut != nil && strut.ft != nil {
+		lead, follow = strut.ascDescMpt()
+		lh = mpt(strut.lh)
 	}
-	acc := 0.0
-	cut := 0
-	for i := range rs {
-		cw := runsWidth(lc.e.measure(a.style, string(rs[i])))
-		if acc+cw > w && i > 0 {
-			break
+	spaceBefore := (lh - lead - follow) / 2
+	spaceAfter := lh - lead - follow - spaceBefore
+	lineLead, lineFollow := lead, follow
+	for _, it := range items {
+		switch it.kind {
+		case itText:
+			if it.style == nil || it.style.ft == nil {
+				continue
+			}
+			a, d := it.style.ascDescMpt()
+			rise := mpt(it.rise)
+			lineLead = max(lineLead, a+rise)
+			lineFollow = max(lineFollow, d-rise)
+		case itImage:
+			lineLead = max(lineLead, mpt(it.img.h+it.rise))
+		case itLeader:
+			if it.lead != nil && it.lead.pattern == "rule" {
+				lineLead = max(lineLead, mpt(it.lead.thickness))
+			}
 		}
-		acc += cw
-		cut = i + 1
 	}
-	if cut == 0 {
-		cut = 1
-	}
-	if cut >= len(rs) {
-		return nil, nil
-	}
-	hr := lc.e.measure(a.style, string(rs[:cut]))
-	tr := lc.e.measure(a.style, string(rs[cut:]))
-	h := *a
-	h.runs, h.w, h.text, h.breakAfter = hr, runsWidth(hr), string(rs[:cut]), true
-	t := *a
-	t.runs, t.w, t.text = tr, runsWidth(tr), string(rs[cut:])
-	return &h, &t
+	return float64(spaceBefore+lineLead+lineFollow+spaceAfter) / 1000, float64(spaceBefore+lineLead) / 1000
 }
 
-func (lc *lctx) buildLine(atoms []atom, po paraOpts, indent float64, isLast, showHyphen bool, active *[]*inlineDecor) *lineBox {
-	// drop trailing collapsible glue
-	for len(atoms) > 0 {
-		l := atoms[len(atoms)-1]
-		if (l.kind == aGlue && !l.fixed) || l.kind == aZW {
-			atoms = atoms[:len(atoms)-1]
-			continue
-		}
-		break
-	}
+// buildLine positions the atoms of one line starting at x0 (widths are already
+// adjusted by the breaking algorithm's ratio) and computes the line metrics.
+func (lc *lctx) buildLine(atoms []atom, po paraOpts, x0 float64, showHyphen bool, hy *atom, active *[]*inlineDecor) *lineBox {
 	lb := &lineBox{w: po.width}
-	type pi struct {
-		it    lineItem
-		glue  bool
-		leads bool
-		open  *inlineDecor
-		close *inlineDecor
-	}
-	var items []pi
-	natural := 0.0
-	nGlue := 0
-	var leaders []int
-	for _, a := range atoms {
-		switch a.kind {
-		case aWord:
-			items = append(items, pi{it: lineItem{kind: itText, w: a.w, style: a.style, runs: a.runs, rise: a.rise}})
-			natural += a.w
-		case aGlue:
-			items = append(items, pi{it: lineItem{kind: itGlue, w: a.w, style: a.style, rise: a.rise}, glue: !a.fixed})
-			natural += a.w
-			if !a.fixed {
-				nGlue++
-			}
-		case aBox:
-			items = append(items, pi{it: lineItem{kind: itImage, w: a.w, img: a.img, style: a.style, rise: a.rise}})
-			natural += a.w
-		case aLeader:
-			items = append(items, pi{it: lineItem{kind: itLeader, w: a.leader.minW, lead: a.leader, style: a.style}, leads: true})
-			leaders = append(leaders, len(items)-1)
-			natural += a.leader.minW
-		case aOpen:
-			items = append(items, pi{it: lineItem{kind: itGlue, w: a.w, style: a.style}, open: a.decor})
-			natural += a.w
-		case aClose:
-			items = append(items, pi{it: lineItem{kind: itGlue, w: a.w, style: a.style}, close: a.decor})
-			natural += a.w
-		case aAnchor:
-			lb.ids = append(lb.ids, a.id)
-		case aSoftHyphen:
-		}
-	}
-	if showHyphen && len(atoms) > 0 {
-		sh := atoms[len(atoms)-1]
-		items = append(items, pi{it: lineItem{kind: itText, w: sh.hyphenW, style: sh.style, runs: sh.hyphen}})
-		natural += sh.hyphenW
-	}
-	avail := po.width - indent
-	free := avail - natural
-	// leaders absorb free space first
-	if len(leaders) > 0 && free > 0 {
-		share := free
-		var growable []int
-		for _, li := range leaders {
-			if items[li].it.lead.maxW > items[li].it.lead.minW {
-				growable = append(growable, li)
-			}
-		}
-		if len(growable) > 0 {
-			per := share / float64(len(growable))
-			for _, li := range growable {
-				ld := items[li].it.lead
-				add := math.Min(per, ld.maxW-ld.minW)
-				items[li].it.w += add
-				free -= add
-			}
-		}
-	}
-	align := po.align
-	if isLast {
-		align = po.alignLast
-	}
-	offset := indent
-	extraPerGlue := 0.0
-	switch align {
-	case "center":
-		offset += free / 2
-	case "end", "right":
-		offset += free
-	case "justify":
-		if !isLast && nGlue > 0 && free > 0 {
-			extraPerGlue = free / float64(nGlue)
-		}
-	}
-	if free < 0 && align != "start" && align != "left" && align != "justify" {
-		// overflowing line: align to the start
-		offset = indent
-	}
-	x := offset
+	x := x0
 	type openRec struct {
 		d  *inlineDecor
 		x0 float64
@@ -525,62 +339,51 @@ func (lc *lctx) buildLine(atoms []atom, po paraOpts, indent float64, isLast, sho
 	for _, d := range *active {
 		open = append(open, openRec{d: d, x0: x})
 	}
-	for _, p := range items {
-		it := p.it
+	push := func(it lineItem) {
 		it.x = x
-		if p.glue {
-			it.w += extraPerGlue
-		}
-		if p.open != nil {
-			open = append(open, openRec{d: p.open, x0: x, f: true})
-			*active = append(*active, p.open)
-		}
+		lb.items = append(lb.items, it)
 		x += it.w
-		if p.close != nil {
+	}
+	for _, a := range atoms {
+		switch a.kind {
+		case aWord:
+			push(lineItem{kind: itText, w: a.w, style: a.style, runs: a.runs, rise: a.rise})
+		case aGlue:
+			push(lineItem{kind: itGlue, w: a.w, style: a.style, rise: a.rise})
+		case aBox:
+			push(lineItem{kind: itImage, w: a.w, img: a.img, style: a.style, rise: a.rise})
+		case aLeader:
+			push(lineItem{kind: itLeader, w: a.w, lead: a.leader, style: a.style})
+		case aOpen:
+			open = append(open, openRec{d: a.decor, x0: x, f: true})
+			*active = append(*active, a.decor)
+			push(lineItem{kind: itGlue, w: a.w, style: a.style})
+		case aClose:
+			push(lineItem{kind: itGlue, w: a.w, style: a.style})
 			for k := len(open) - 1; k >= 0; k-- {
-				if open[k].d == p.close {
-					lb.decors = append(lb.decors, decorSeg{x0: open[k].x0, x1: x, d: p.close, first: open[k].f, last: true})
+				if open[k].d == a.decor {
+					lb.decors = append(lb.decors, decorSeg{x0: open[k].x0, x1: x, d: a.decor, first: open[k].f, last: true})
 					open = append(open[:k], open[k+1:]...)
 					break
 				}
 			}
 			for k, d := range *active {
-				if d == p.close {
+				if d == a.decor {
 					*active = append((*active)[:k], (*active)[k+1:]...)
 					break
 				}
 			}
-		}
-		if it.kind != itGlue || it.style != nil {
-			lb.items = append(lb.items, it)
+		case aAnchor:
+			lb.ids = append(lb.ids, a.id)
 		}
 	}
-	for _, o := range open { // still open at end of line
+	if showHyphen && hy != nil {
+		push(lineItem{kind: itText, w: hy.hyphenW, style: hy.style, runs: hy.hyphen})
+	}
+	for _, o := range open { // still open at the end of the line
 		lb.decors = append(lb.decors, decorSeg{x0: o.x0, x1: x, d: o.d, first: o.f})
 	}
-	// vertical metrics
-	above, below := 0.0, 0.0
-	consider := func(st *textStyle, rise float64) {
-		if st == nil || st.ft == nil {
-			return
-		}
-		asc, desc := st.ascDesc()
-		lead := st.lh - (asc + desc)
-		a := asc + lead/2 + rise
-		b := desc + lead/2 - rise
-		above, below = math.Max(above, a), math.Max(below, b)
-	}
-	consider(po.strut, 0)
-	for _, it := range lb.items {
-		switch it.kind {
-		case itText, itGlue, itLeader:
-			consider(it.style, it.rise)
-		case itImage:
-			above = math.Max(above, it.img.h+it.rise)
-		}
-	}
-	lb.h = above + below
-	lb.base = above
+	lb.h, lb.base = lineMetrics(po.strut, lb.items)
 	return lb
 }
 
@@ -589,6 +392,8 @@ func (lc *lctx) buildLine(atoms []atom, po paraOpts, indent float64, isLast, sho
 func (l *lineBox) height() float64                    { return l.h }
 func (l *lineBox) before() float64                    { return 0 }
 func (l *lineBox) after() float64                     { return 0 }
+func (l *lineBox) beforeSp() []spc                    { return nil }
+func (l *lineBox) afterSp() []spc                     { return nil }
 func (l *lineBox) keepNext() bool                     { return false }
 func (l *lineBox) keepPrev() bool                     { return false }
 func (l *lineBox) breakBefore() brk                   { return brkNone }
@@ -647,13 +452,11 @@ func (r *renderCtx) drawLineText(l *lineBox, x, y float64) {
 				off += run.width
 			}
 		case itGlue:
-			if it.style == nil || it.style.ft == nil {
-				flush()
-				continue
-			}
-			if len(glyphs) > 0 && curFont == it.style.ft && curStyle == it.style {
+			if len(glyphs) > 0 && curFont != nil && curStyle != nil {
+				// keep a real space glyph in the text run (also across style changes) so
+				// the text stays searchable; the glue width is made up with an adjustment
 				gid := curFont.GlyphIndex(' ')
-				adv := float64(curFont.Advance(gid)) * it.style.size / float64(curFont.UnitsPerEm)
+				adv := float64(curFont.Advance(gid)) * curStyle.size / float64(curFont.UnitsPerEm)
 				glyphs = append(glyphs, pdf.Glyph{GID: gid, Rune: ' ', Extra: it.w - adv})
 			} else {
 				flush()

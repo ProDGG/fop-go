@@ -23,6 +23,8 @@ type Options struct {
 	Producer string
 	// AllowRemote enables loading http(s) images.
 	AllowRemote bool
+	// NoKerning disables pair kerning (FOP applies it by default).
+	NoKerning bool
 }
 
 // Engine holds state shared by all pages of one rendering run.
@@ -39,6 +41,7 @@ type Engine struct {
 	cited   bool              // page-number-citation seen
 	cites   map[string]bool   // ids cited in the pass in progress
 	pxPt    float64
+	kerning bool // apply pair kerning (FOP default)
 }
 
 type idInfo struct {
@@ -67,6 +70,7 @@ type textStyle struct {
 	color      Color
 	lh         float64 // line height in points
 	ls, ws     float64 // letter and word spacing
+	wsExplicit bool    // word-spacing is not "normal"
 	underline  bool
 	overline   bool
 	strike     bool
@@ -191,11 +195,16 @@ func (e *Engine) styleFor(n *Node) *textStyle {
 			st.lh = fs * 1.2
 		}
 	}
-	if v, ok := e.parseLength(el, el.Str("letter-spacing", "0pt"), fs); ok && el.Get("letter-spacing") != "normal" {
-		st.ls = v
+	if v := el.Get("letter-spacing"); v != "" && v != "normal" {
+		if r, ok := e.parseLength(el, v, fs); ok {
+			st.ls = r
+		}
 	}
-	if v, ok := e.parseLength(el, el.Str("word-spacing", "0pt"), fs); ok && el.Get("word-spacing") != "normal" {
-		st.ws = v
+	if v := el.Get("word-spacing"); v != "" && v != "normal" {
+		if r, ok := e.parseLength(el, v, fs); ok {
+			st.ws = r
+			st.wsExplicit = true
+		}
 	}
 	for _, tok := range strings.Fields(strings.ToLower(el.Get("text-decoration"))) {
 		switch tok {
@@ -215,34 +224,37 @@ func (e *Engine) styleFor(n *Node) *textStyle {
 	case "capitalize":
 		st.upper = 3
 	}
-	// baseline shift (not inherited, applies to this element only)
-	if v, ok := el.Props["baseline-shift"]; ok {
-		switch v {
+	// baseline shift (not inherited, applies to this element only); the
+	// formulas follow AlignmentContext.setBaselineShift in Apache FOP
+	bs, ok := el.Props["baseline-shift"]
+	if !ok {
+		bs, ok = el.Props["vertical-align"]
+	}
+	var parentSt *textStyle
+	if el.Parent != nil {
+		parentSt = e.styleFor(el.Parent)
+	}
+	if ok && st.ft != nil {
+		switch bs {
 		case "super":
-			st.shift = fs * 0.4
+			if parentSt != nil && parentSt.ft != nil {
+				st.shift = float64(parentSt.xHeightMpt()) / 1000
+			}
 		case "sub":
-			st.shift = -fs * 0.2
-		case "baseline":
+			st.shift = -float64(st.xHeightMpt()/2) / 1000
+		case "baseline", "middle", "text-top", "text-bottom", "top", "bottom":
 		default:
-			if r, ok := e.parseLength(el, v, fs); ok {
+			base := fs
+			if parentSt != nil {
+				base = parentSt.lh
+			}
+			if r, ok := e.parseLength(el, bs, base); ok {
 				st.shift = r
 			}
 		}
-	} else if v, ok := el.Props["vertical-align"]; ok && el.Name == "inline" {
-		switch v {
-		case "super":
-			st.shift = fs * 0.4
-		case "sub":
-			st.shift = -fs * 0.2
-		}
 	}
-	if el.Parent != nil && st.shift == 0 && el.Name == "inline" {
-		// shifts accumulate through nested inlines
-		if ps := e.styleFor(el.Parent); ps != nil && el.Parent.Name == "inline" {
-			st.shift = ps.shift
-		}
-	} else if el.Parent != nil && st.shift != 0 && el.Name == "inline" && el.Parent.Name == "inline" {
-		st.shift += e.styleFor(el.Parent).shift
+	if parentSt != nil && el.Parent.Name != "block" && el.Name == "inline" {
+		st.shift += parentSt.shift // shifts accumulate through nested inlines
 	}
 	wsc := el.Get("white-space-collapse")
 	lf := el.Get("linefeed-treatment")
@@ -316,4 +328,12 @@ func applyTransform(s string, mode int) string {
 		return sb.String()
 	}
 	return s
+}
+
+// newTestEngine builds an engine with default fonts (used by tests).
+func newTestEngine() *Engine {
+	fm := font.NewManager()
+	fm.DisableSystemFonts()
+	return &Engine{opts: Options{Fonts: fm, PxPerPt: 1}, fonts: fm, warned: map[string]bool{}, styles: map[*Node]*textStyle{},
+		links: map[*Node]*linkTarget{}, images: map[string]*imageData{}, pxPt: 1, ids: map[string]idInfo{}, cites: map[string]bool{}, kerning: true}
 }

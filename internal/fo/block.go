@@ -24,6 +24,8 @@ type vitem interface {
 	height() float64
 	before() float64
 	after() float64
+	beforeSp() []spc // space-before specifiers (outer first), for resolution with neighbours
+	afterSp() []spc  // space-after specifiers (inner first)
 	keepNext() bool
 	keepPrev() bool
 	breakBefore() brk
@@ -71,7 +73,7 @@ type block struct {
 	repeatHdr bool
 	repeatFtr bool
 
-	spBefore, spAfter       float64
+	spB, spA                []spc
 	kNext, kPrev, kTogether bool
 	bBefore, bAfter         brk
 	orphans, widows         int
@@ -139,8 +141,10 @@ func (b *block) height() float64 {
 	return h
 }
 
-func (b *block) before() float64 { return b.spBefore }
-func (b *block) after() float64  { return b.spAfter }
+func (b *block) before() float64 { return resolveSpaces(b.spB) }
+func (b *block) after() float64  { return resolveSpaces(b.spA) }
+func (b *block) beforeSp() []spc { return b.spB }
+func (b *block) afterSp() []spc  { return b.spA }
 func (b *block) keepNext() bool  { return b.kNext }
 func (b *block) keepPrev() bool  { return b.kPrev }
 
@@ -260,10 +264,11 @@ func (b *block) split(avail float64, force bool) (vitem, vitem) {
 	}
 	head.last, head.endGap, head.minH, head.fixedH = false, 0, 0, false
 	head.bAfter = brkNone
-	head.spAfter = 0
+	head.spA = nil
 	head.forceH = 0
 	tail.first, tail.ids, tail.markers, tail.overlays = false, nil, nil, nil
-	tail.bBefore, tail.spBefore, tail.kPrev = brkNone, 0, false
+	tail.bBefore, tail.kPrev = brkNone, false
+	tail.spB = tailBeforeSp(tail.children)
 	tail.forceH = 0
 	if tail.minH > 0 {
 		tail.minH = math.Max(0, tail.minH-(head.height()-head.botDeco()))
@@ -304,9 +309,19 @@ func (b *block) forcedSplit() (vitem, vitem, brk) {
 }
 
 func finishForced(head, tail *block) {
-	head.last, head.endGap, head.minH, head.fixedH, head.bAfter, head.spAfter = false, 0, 0, false, brkNone, 0
+	head.last, head.endGap, head.minH, head.fixedH, head.bAfter, head.spA = false, 0, 0, false, brkNone, nil
 	tail.first, tail.ids, tail.markers, tail.overlays = false, nil, nil, nil
-	tail.bBefore, tail.spBefore, tail.kPrev = brkNone, 0, false
+	tail.bBefore, tail.kPrev = brkNone, false
+	tail.spB = tailBeforeSp(tail.children)
+}
+
+// tailBeforeSp is the space at the top of a continuation fragment: the first
+// child's space-before after discarding conditional spaces at the break.
+func tailBeforeSp(children []vitem) []spc {
+	if len(children) == 0 {
+		return nil
+	}
+	return discardAtBreak(children[0].beforeSp(), false)
 }
 
 func (b *block) render(r *renderCtx, ox, y float64) {
@@ -379,19 +394,19 @@ func (b *block) fillGaps() {
 	}
 	hasTop := b.b[0].w+b.p[0] > 0
 	hasBot := b.b[2].w+b.p[2] > 0
-	first := b.children[0].before()
+	first := b.children[0].beforeSp()
 	if hasTop || len(b.hdr) > 0 {
-		b.gaps[0] = first
+		b.gaps[0] = resolveSpaces(first)
 	} else {
-		b.spBefore = math.Max(b.spBefore, first)
+		b.spB = concatSp(b.spB, first)
 	}
 	for i := 1; i < n; i++ {
-		b.gaps[i] = math.Max(b.children[i-1].after(), b.children[i].before())
+		b.gaps[i] = resolveSpaces(concatSp(b.children[i-1].afterSp(), b.children[i].beforeSp()))
 	}
-	last := b.children[n-1].after()
+	last := b.children[n-1].afterSp()
 	if hasBot || len(b.ftr) > 0 {
-		b.endGap = last
+		b.endGap = resolveSpaces(last)
 	} else {
-		b.spAfter = math.Max(b.spAfter, last)
+		b.spA = concatSp(last, b.spA)
 	}
 }

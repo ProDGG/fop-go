@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/><fo:region-before extent="8mm"/><fo:region-after extent="8mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block border="2pt solid red" padding="6pt" margin="6pt" background-color="#ffeeee">элит ut labore долор сед адиписцинг эйусмод консектетур exercitation consequat адиписцинг exercitation адиписцинг aliquip commodo exercitation enim labore consequat nostrud magna aliquip ut темпор адиписцинг commodo enim ut et commodo ullamco ut et aliqua consequat ипсум до consequat лорем консектетур commodo сит лорем exercitation амет до dolore dolore ипсум minim et ипсум адиписцинг exercitation адиписцинг сед et ut ипсум темпор labore exercitation адиписцинг exercitation laboris до амет сит labore до consequat ut labore долор адиписцинг амет et ullamco laboris nostrud до инцидидунт laboris commodo minim темпор консектетур ut до labore et dolore magna элит темпор aliquip до до лорем labore темпор commodo темпор laboris nisi до exercitation элит consequat laboris dolore лорем лорем амет minim dolore амет magna лорем консектетур ипсум лорем адиписцинг ullamco laboris labore темпор laboris темпор magna ипсум et консектетур элит лорем сед ut commodo эйусмод nisi ипсум enim magna laboris сит labore до сед элит veniam</fo:block><fo:block border-top="3pt dashed blue" border-bottom="3pt dotted green" border-left="1pt double black" padding="4pt" margin="10pt" space-before="12pt">laboris et ut exercitation сед эйусмод ипсум лорем ut ипсум minim veniam консектетур consequat ullamco laboris aliqua элит амет exercitation ullamco nisi laboris ut dolore ullamco nisi эйусмод magna амет</fo:block>
+</fo:flow></fo:page-sequence></fo:root>

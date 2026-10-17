@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/><fo:region-before extent="8mm"/><fo:region-after extent="8mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block text-align="start" text-indent="0pt" space-after="6pt" >элит aliqua magna амет темпор consequat enim et minim aliqua долор enim лорем consequat nisi et сед magna элит адиписцинг nostrud et magna nisi magna et инцидидунт minim aliquip амет элит minim амет aliquip consequat dolore инцидидунт exercitation лорем veniam ullamco долор консектетур ullamco aliqua</fo:block>
+<fo:block text-align="end" text-indent="0pt" space-after="6pt" >ипсум до ullamco лорем nisi aliquip сед et enim exercitation consequat commodo инцидидунт nostrud laboris consequat ut инцидидунт exercitation laboris aliqua labore consequat амет commodo темпор сит ипсум амет et адиписцинг сед veniam ut ullamco minim aliquip до ut dolore nisi инцидидунт aliqua темпор magna</fo:block>
+<fo:block text-align="center" text-indent="0pt" space-after="6pt" >aliqua ut aliqua элит commodo эйусмод veniam consequat consequat лорем aliquip сед enim veniam nostrud консектетур nostrud aliquip эйусмод magna commodo aliqua aliqua сит nostrud minim адиписцинг minim nisi aliqua сед до сит долор et aliquip minim et долор темпор laboris долор ut commodo амет</fo:block>
+<fo:block text-align="justify" text-indent="12pt" space-after="6pt" >лорем до ut ullamco ut aliquip сит ипсум enim enim ullamco ипсум инцидидунт nostrud aliqua эйусмод magna commodo consequat сед dolore элит ипсум до лорем долор сит enim magna ипсум адиписцинг ut до enim сед амет nostrud ипсум aliquip эйусмод эйусмод темпор амет commodo aliquip</fo:block>
+<fo:block text-align="justify" text-indent="-10pt" space-after="6pt" start-indent="20pt">инцидидунт инцидидунт labore aliquip dolore инцидидунт minim aliquip enim veniam magna сит enim laboris dolore сед ut minim exercitation nostrud элит consequat до ut сед dolore до magna эйусмод лорем laboris ut aliqua эйусмод лорем инцидидунт enim aliqua minim амет ипсум minim minim эйусмод labore</fo:block>
+<fo:block text-align="justify" text-indent="0pt" space-after="6pt" text-align-last="center">темпор veniam consequat темпор enim nostrud сед exercitation et лорем aliqua ипсум veniam лорем темпор сед minim labore до aliqua enim эйусмод консектетур темпор консектетур эйусмод ullamco темпор aliquip enim сед до laboris инцидидунт сит ullamco nisi лорем aliqua veniam exercitation амет до dolore элит</fo:block>
+<fo:block text-align="left" text-indent="0pt" space-after="6pt" text-align-last="justify">minim laboris сед элит эйусмод консектетур veniam ut minim nostrud сит сит enim эйусмод эйусмод veniam nisi элит labore laboris aliquip консектетур долор эйусмод exercitation minim адиписцинг commodo aliqua labore сед элит laboris сит ипсум dolore адиписцинг эйусмод laboris nisi nisi aliqua консектетур aliquip сед</fo:block>
+
+</fo:flow></fo:page-sequence></fo:root>

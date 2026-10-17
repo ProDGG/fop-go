@@ -8,14 +8,15 @@ type rotItem struct {
 	content  *block
 	w, h     float64 // size of the container in the parent frame
 	rot      int
-	spBefore float64
-	spAfter  float64
+	spB, spA []spc
 	kNext    bool
 }
 
 func (r *rotItem) height() float64                    { return r.h }
-func (r *rotItem) before() float64                    { return r.spBefore }
-func (r *rotItem) after() float64                     { return r.spAfter }
+func (r *rotItem) before() float64                    { return resolveSpaces(r.spB) }
+func (r *rotItem) after() float64                     { return resolveSpaces(r.spA) }
+func (r *rotItem) beforeSp() []spc                    { return r.spB }
+func (r *rotItem) afterSp() []spc                     { return r.spA }
 func (r *rotItem) keepNext() bool                     { return r.kNext }
 func (r *rotItem) keepPrev() bool                     { return false }
 func (r *rotItem) breakBefore() brk                   { return brkNone }
@@ -82,9 +83,8 @@ func (lc *lctx) layoutRotated(n *Node, rot int, widthOverride *float64) vitem {
 	bb.flush()
 	b.children = bb.items
 	b.fillGaps()
-	b.spBefore, b.spAfter = 0, 0
-	sb, sa := lc.space(n, "space-before"), lc.space(n, "space-after")
-	item := &rotItem{content: b, rot: rot, spBefore: sb, spAfter: sa, kNext: isKeep(n.Props["keep-with-next"])}
+	b.spB, b.spA = nil, nil
+	item := &rotItem{content: b, rot: rot, spB: lc.spaces(n, "space-before"), spA: lc.spaces(n, "space-after"), kNext: isKeep(n.Props["keep-with-next"])}
 	ch := b.height()
 	if rot%180 == 0 {
 		item.w = w

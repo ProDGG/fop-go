@@ -30,11 +30,18 @@ type Font struct {
 	NumGlyphs  int
 	Weight     int
 
+	// Metrics in 1/1000 em derived like Apache FOP (OpenFont.determineAscDesc):
+	// OS/2 typo values when they fit into the em box, otherwise hhea.
+	Asc1000, Desc1000, XHeight1000, Cap1000 int
+
 	tables  map[string][]byte
 	advance []uint16
 	cmap    map[rune]uint16
 	loca    []uint32
 	kern    map[uint32]int16
+
+	gposDone    bool
+	kernLookups []pairLookup
 }
 
 func be16(b []byte, o int) int  { return int(binary.BigEndian.Uint16(b[o:])) }
@@ -155,6 +162,7 @@ func Parse(data []byte) (*Font, error) {
 	if f.XHeight == 0 {
 		f.XHeight = f.CapHeight * 7 / 10
 	}
+	f.computeFOPMetrics()
 	f.parseNames()
 	if err := f.parseCmap(); err != nil {
 		return nil, err
@@ -376,8 +384,17 @@ func (f *Font) Advance(gid uint16) int {
 	return 0
 }
 
-// Kern returns the kerning adjustment between two glyphs in font units.
+// Kern returns the kerning adjustment between two glyphs in font units: the GPOS
+// 'kern' feature when the font has one (what FOP uses with complex scripts
+// enabled), otherwise the legacy kern table.
 func (f *Font) Kern(a, b uint16) int {
+	if !f.gposDone {
+		f.loadKern()
+	}
+	if len(f.kernLookups) > 0 {
+		v, _ := f.gposKern(a, b)
+		return v
+	}
 	if f.kern == nil {
 		return 0
 	}
@@ -398,4 +415,27 @@ func (f *Font) glyphData(gid int) []byte {
 		return nil
 	}
 	return glyf[s:e]
+}
+
+// computeFOPMetrics reproduces Apache FOP's choice of ascender/descender
+// (OpenFont.determineAscDesc) and the conversion to 1/1000 em units.
+func (f *Font) computeFOPMetrics() {
+	var os2Asc, os2Desc int
+	if os2, ok := f.tables["OS/2"]; ok && len(os2) >= 72 {
+		os2Asc, os2Desc = bes16(os2, 68), bes16(os2, 70)
+	}
+	hheaAsc, hheaDesc := f.Ascent, f.Descent
+	upem := f.UnitsPerEm
+	asc, desc := hheaAsc, hheaDesc
+	switch {
+	case os2Asc > 0 && os2Asc-os2Desc <= upem:
+		asc, desc = os2Asc, os2Desc
+	case hheaAsc > 0 && hheaAsc-hheaDesc <= upem:
+		asc, desc = hheaAsc, hheaDesc
+	case os2Asc > 0:
+		asc, desc = os2Asc, os2Desc
+	}
+	conv := func(v int) int { return v * 1000 / upem } // Go truncates toward zero like Java
+	f.Asc1000, f.Desc1000 = conv(asc), conv(desc)
+	f.XHeight1000, f.Cap1000 = conv(f.XHeight), conv(f.CapHeight)
 }

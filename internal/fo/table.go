@@ -42,7 +42,7 @@ type rowCell struct {
 type rowBox struct {
 	cells    []rowCell
 	h        float64
-	spBefore float64
+	spBefore float64 // border-separation (kept at breaks)
 	spAfter  float64
 	kNext    bool
 	kTogeth  bool
@@ -52,9 +52,21 @@ type rowBox struct {
 	ids      []string
 }
 
-func (rb *rowBox) height() float64  { return rb.h }
-func (rb *rowBox) before() float64  { return rb.spBefore }
-func (rb *rowBox) after() float64   { return rb.spAfter }
+func (rb *rowBox) height() float64 { return rb.h }
+func (rb *rowBox) before() float64 { return rb.spBefore }
+func (rb *rowBox) after() float64  { return rb.spAfter }
+func (rb *rowBox) beforeSp() []spc {
+	if rb.spBefore == 0 {
+		return nil
+	}
+	return []spc{{opt: rb.spBefore, retain: true}}
+}
+func (rb *rowBox) afterSp() []spc {
+	if rb.spAfter == 0 {
+		return nil
+	}
+	return []spc{{opt: rb.spAfter, retain: true}}
+}
 func (rb *rowBox) keepNext() bool   { return rb.kNext }
 func (rb *rowBox) keepPrev() bool   { return false }
 func (rb *rowBox) breakBefore() brk { return rb.bBefore }
@@ -193,7 +205,6 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 		b.p = [4]float64{}
 	}
 	S, E := lc.indents(n, b)
-	_ = S
 	hsep, vsep := 0.0, 0.0
 	if !collapse {
 		if v := n.Get("border-separation"); v != "" {
@@ -536,7 +547,7 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 					}
 				}
 			}
-			cb.spBefore, cb.spAfter = 0, 0
+			cb.spB, cb.spA = nil, nil
 			cb.kNext, cb.kPrev, cb.bBefore, cb.bAfter = false, false, brkNone, brkNone
 			if collapse {
 				rb := resolved[c]
@@ -558,14 +569,14 @@ func (lc *lctx) layoutTable(n *Node) vitem {
 			if inner < 1 {
 				inner = 1
 			}
-			lcc := &lctx{e: e, refW: inner, refH: lc.refH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
+			lcc := &lctx{e: e, refW: inner, refH: lc.refH, S: S, E: E, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
 			bb := lcc.newBlockBuilder(c.node)
 			bb.process(c.node.Children)
 			bb.flush()
 			cb.children = bb.items
 			cb.markers = bb.markers
 			cb.fillGaps()
-			cb.spBefore, cb.spAfter = 0, 0
+			cb.spB, cb.spA = nil, nil
 			if h, ok := lc.length(c.node, "block-progression-dimension.minimum", cw); ok {
 				cb.minH = h
 			} else if h, ok := lc.length(c.node, "height", cw); ok {

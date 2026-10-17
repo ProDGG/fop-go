@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/><fo:region-before extent="8mm"/><fo:region-after extent="8mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block space-before="20pt" space-after="10pt" background-color="#eef">A</fo:block>
+<fo:block space-before="30pt" space-after="5pt">B</fo:block>
+<fo:block margin-top="12pt" margin-bottom="8pt">C</fo:block>
+<fo:block><fo:block space-before="15pt">D inner first</fo:block><fo:block space-after="25pt">D inner last</fo:block></fo:block>
+<fo:block space-before="10pt">E</fo:block>
+<fo:block border="1pt solid black" padding="6pt" space-before="10pt" space-after="10pt">F bordered no margin</fo:block>
+<fo:block border="1pt solid black" padding="6pt" margin="0pt" space-before="10pt" space-after="10pt">G bordered margin 0</fo:block>
+<fo:block margin-left="30pt" margin-right="20pt" border-left="2pt solid red" padding-left="4pt"><fo:block margin-left="10pt">H nested margins</fo:block><fo:block start-indent="100pt">I explicit start-indent</fo:block></fo:block>
+<fo:block space-before.minimum="5pt" space-before.optimum="20pt" space-before.maximum="30pt">J</fo:block>
+<fo:block space-before="10pt" space-before.conditionality="retain">K</fo:block>
+
+</fo:flow></fo:page-sequence></fo:root>

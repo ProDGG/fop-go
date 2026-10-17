@@ -90,21 +90,6 @@ func firstToken(s string) string {
 	return f[0]
 }
 
-// space returns the optimum of a space-before/after property.
-func (lc *lctx) space(n *Node, name string) float64 {
-	if v, ok := n.Props[name+".optimum"]; ok {
-		if r, ok := lc.e.parseLength(n, firstToken(v), 0); ok {
-			return r
-		}
-	}
-	if v, ok := n.Props[name]; ok {
-		if r, ok := lc.e.parseLength(n, firstToken(v), 0); ok {
-			return r
-		}
-	}
-	return 0
-}
-
 func (lc *lctx) borderOf(n *Node, side string, cw float64) border {
 	style := n.Props["border-"+side+"-style"]
 	if style == "" || style == "none" || style == "hidden" {
@@ -146,8 +131,8 @@ func (lc *lctx) boxProps(n *Node, b *block, cw float64) {
 			lc.e.warn("background image %q: %v", unwrapURL(v), err)
 		}
 	}
-	b.spBefore = math.Max(0, lc.space(n, "space-before"))
-	b.spAfter = math.Max(0, lc.space(n, "space-after"))
+	b.spB = lc.spaces(n, "space-before")
+	b.spA = lc.spaces(n, "space-after")
 	b.kTogether = isKeep(n.Get("keep-together"))
 	b.kNext = isKeep(n.Props["keep-with-next"])
 	b.kPrev = isKeep(n.Props["keep-with-previous"])
@@ -168,22 +153,47 @@ func (lc *lctx) boxProps(n *Node, b *block, cw float64) {
 	}
 }
 
-// indents computes the border-box position of a block relative to the parent
-// content box, and the child content indents.
+// refAreaFO reports whether the FO generates a reference area (FOP:
+// FObj.generatesReferenceAreas), which stops start-indent inheritance when the
+// indent is derived from margins.
+func refAreaFO(n *Node) bool {
+	switch n.Name {
+	case "block-container", "inline-container", "table-cell", "flow", "static-content":
+		return true
+	}
+	return false
+}
+
+// indents derives start-indent/end-indent the way Apache FOP does
+// (IndentPropertyMaker.computeConforming, XSL 1.1 section 5.3.2):
+//
+//   - an explicit margin-left/right is converted into the indent:
+//     inherited indent (unless the FO generates a reference area) + margin + padding + border;
+//   - otherwise an explicit start-indent/end-indent is used as is;
+//   - otherwise (including padding/border without margin) the inherited value is
+//     used, so padding and borders protrude outside the content rectangle.
+//
+// It also sets the border-box position of b relative to the parent content box.
 func (lc *lctx) indents(n *Node, b *block) (S, E float64) {
 	cw := lc.contentW()
+	base, baseE := lc.S, lc.E
+	if refAreaFO(n) {
+		base, baseE = 0, 0
+	}
+	derive := func(abs string, forced bool, margin float64, pad, bw float64, inherited, parentBase float64, indent string) float64 {
+		_, hasMargin := n.Props[abs]
+		if forced || (hasMargin && !n.Has(indent)) {
+			return parentBase + margin + pad + bw
+		}
+		if v, ok := lc.length(n, indent, cw); ok {
+			return v
+		}
+		return inherited
+	}
 	ml := lc.lengthOr(n, "margin-left", cw, 0)
 	mr := lc.lengthOr(n, "margin-right", cw, 0)
-	if v, ok := lc.length(n, "start-indent", cw); ok {
-		S = v
-	} else {
-		S = lc.S + ml + b.b[3].w + b.p[3]
-	}
-	if v, ok := lc.length(n, "end-indent", cw); ok {
-		E = v
-	} else {
-		E = lc.E + mr + b.b[1].w + b.p[1]
-	}
+	S = derive("margin-left", n.Props["\x00ml"] != "", ml, b.p[3], b.b[3].w, lc.S, base, "start-indent")
+	E = derive("margin-right", n.Props["\x00mr"] != "", mr, b.p[1], b.b[1].w, lc.E, baseE, "end-indent")
 	b.left = S - b.p[3] - b.b[3].w - lc.S
 	b.width = lc.refW - S - E + b.p[3] + b.b[3].w + b.p[1] + b.b[1].w
 	if lc.refW-S-E < 1 {
@@ -294,7 +304,14 @@ func (bb *blockBuilder) flush() {
 	n := bb.n
 	st := bb.strut
 	align := alignValue(n.Get("text-align"))
-	alignLast := n.Get("text-align-last")
+	// text-align-last is derived from text-align unless specified (foproperties.xml <derive>)
+	alignLast := ""
+	for c := n; c != nil; c = c.Parent {
+		if v, ok := c.Props["text-align-last"]; ok && v != "inherit" {
+			alignLast = v
+			break
+		}
+	}
 	switch alignLast {
 	case "", "relative":
 		if align == "justify" {
@@ -307,13 +324,45 @@ func (bb *blockBuilder) flush() {
 	}
 	indent := lc.lengthOr(n, "text-indent", lc.contentW(), 0)
 	po := paraOpts{width: lc.contentW(), indent: indent, align: align, alignLast: alignLast, strut: st, nowrap: st.nowrap}
-	lines := lc.breakLines(append([]atom(nil), atoms...), po)
-	bb.paraSeq++
-	for _, l := range lines {
-		l.paraID = bb.paraSeq
-		bb.items = append(bb.items, l)
+	// a preserved line feed ends a paragraph (FOP: separate Paragraph sequences)
+	var segs [][]atom
+	cur := []atom(nil)
+	for _, a := range atoms {
+		if a.kind == aBreak {
+			segs = append(segs, cur)
+			cur = nil
+			continue
+		}
+		cur = append(cur, a)
+	}
+	if len(cur) > 0 || len(segs) == 0 {
+		segs = append(segs, cur)
+	}
+	for si, seg := range segs {
+		first := len(bb.items) == 0 && bb.paraSeq == 0
+		var lines []*lineBox
+		if !hasContent(seg) && len(segs) > 1 && si < len(segs) {
+			if len(seg) == 0 || !hasContent(seg) {
+				// an empty line produced by consecutive preserved line feeds
+				lines = []*lineBox{lc.emptyLine(po)}
+			}
+		} else {
+			lines = lc.paragraphLines(append([]atom(nil), seg...), po, first, nil)
+		}
+		bb.paraSeq++
+		for _, l := range lines {
+			l.paraID = bb.paraSeq
+			bb.items = append(bb.items, l)
+		}
 	}
 	ib.reset()
+}
+
+// emptyLine is a blank line (height of the block's strut).
+func (lc *lctx) emptyLine(po paraOpts) *lineBox {
+	lb := &lineBox{w: po.width}
+	lb.h, lb.base = lineMetrics(po.strut, nil)
+	return lb
 }
 
 func (bb *blockBuilder) process(children []*Node) {
@@ -549,6 +598,8 @@ type spacer struct{ h float64 }
 func (s *spacer) height() float64                     { return s.h }
 func (s *spacer) before() float64                     { return 0 }
 func (s *spacer) after() float64                      { return 0 }
+func (s *spacer) beforeSp() []spc                     { return nil }
+func (s *spacer) afterSp() []spc                      { return nil }
 func (s *spacer) keepNext() bool                      { return false }
 func (s *spacer) keepPrev() bool                      { return false }
 func (s *spacer) breakBefore() brk                    { return brkNone }
@@ -573,6 +624,7 @@ func (lc *lctx) layoutBlockContainer(n *Node) vitem {
 		return lc.layoutRotated(n, rot, nil)
 	}
 	S, E := lc.indents(n, b)
+	Sc, Ec := S, E // indent property values inherited by the container's children
 	// explicit width narrows the container
 	if w, ok := lc.length(n, "width", cw); ok {
 		b.width = w
@@ -587,7 +639,7 @@ func (lc *lctx) layoutBlockContainer(n *Node) vitem {
 	}
 	_ = E
 	// a block-container establishes a new reference area
-	lc2 := &lctx{e: lc.e, refW: inner, refH: lc.refH, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
+	lc2 := &lctx{e: lc.e, refW: inner, refH: lc.refH, S: Sc, E: Ec, pageNum: lc.pageNum, pageFmt: lc.pageFmt, markers: lc.markers, carry: lc.carry}
 	bb := lc2.newBlockBuilder(n)
 	bb.process(n.Children)
 	bb.flush()
@@ -637,6 +689,8 @@ type absItem struct {
 func (a *absItem) height() float64                    { return 0 }
 func (a *absItem) before() float64                    { return 0 }
 func (a *absItem) after() float64                     { return 0 }
+func (a *absItem) beforeSp() []spc                    { return nil }
+func (a *absItem) afterSp() []spc                     { return nil }
 func (a *absItem) keepNext() bool                     { return false }
 func (a *absItem) keepPrev() bool                     { return false }
 func (a *absItem) breakBefore() brk                   { return brkNone }
@@ -720,7 +774,7 @@ func (lc *lctx) layoutAbsolute(n *Node, fixed bool) vitem {
 	bb.flush()
 	b.children = bb.items
 	b.fillGaps()
-	b.spBefore, b.spAfter = 0, 0
+	b.spB, b.spA = nil, nil
 	if h := get("height", regH); h != nil {
 		b.minH = *h
 		b.fixedH = true
@@ -881,17 +935,11 @@ func (lc *lctx) leaderAtom(c *Node) atom {
 		opt = v
 	}
 	opt = get("leader-length.optimum", opt)
-	ld.minW = get("leader-length.minimum", 0)
-	ld.maxW = get("leader-length.maximum", cw)
-	if ld.maxW < opt {
-		ld.maxW = opt
-	}
-	if ld.minW > opt {
-		ld.minW = opt
-	}
-	// the leader starts at its minimum length and grows towards the maximum
-	// to fill the line; the optimum is the target when there is room.
-	ld.minW = math.Min(ld.minW, opt)
+	minW := get("leader-length.minimum", 0)
+	maxW := get("leader-length.maximum", cw)
+	// LeaderLayoutManager.getLeaderAllocIPD: MinOptMax(min, min(opt, max), max)
+	ld.minW, ld.maxW = minW, maxW
+	ld.optW = math.Min(opt, maxW)
 	switch ld.pattern {
 	case "dots":
 		ld.patRuns = e.measure(st, ".")
@@ -905,6 +953,6 @@ func (lc *lctx) leaderAtom(c *Node) atom {
 		ld.patW = math.Max(runsWidth(ld.patRuns), get("leader-pattern-width", 0))
 	}
 	a := atom{kind: aLeader, leader: ld, style: st}
-	a.w = ld.minW
+	a.w = ld.optW
 	return a
 }

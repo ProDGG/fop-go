@@ -2,7 +2,6 @@ package fo
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +34,28 @@ type seqRun struct {
 	pageFmt string
 	carry   map[string]*Node
 	lastNum string
+
+	nextInitial string // initial-page-number of the next page-sequence
+	hasNext     bool
+}
+
+// initialPageNumber mirrors AbstractPageSequence.initPageNumber.
+func initialPageNumber(v string, endPrev int) int {
+	v = strings.TrimSpace(v)
+	switch v {
+	case "", "auto", "auto-odd", "auto-even":
+		start := endPrev + 1
+		if v == "auto-odd" && start%2 == 0 {
+			start++
+		} else if v == "auto-even" && start%2 != 0 {
+			start++
+		}
+		return start
+	}
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		return n
+	}
+	return 1
 }
 
 // Render lays out the FO tree and returns the PDF document.
@@ -49,7 +70,7 @@ func Render(root *Node, opts Options) (*pdf.Document, error) {
 		opts.PxPerPt = 1
 	}
 	e := &Engine{opts: opts, fonts: opts.Fonts, warned: map[string]bool{}, styles: map[*Node]*textStyle{}, links: map[*Node]*linkTarget{},
-		images: map[string]*imageData{}, pxPt: opts.PxPerPt}
+		images: map[string]*imageData{}, pxPt: opts.PxPerPt, kerning: !opts.NoKerning}
 	var doc *pdf.Document
 	for pass := 0; pass < 6; pass++ {
 		e.ids = map[string]idInfo{}
@@ -97,13 +118,16 @@ func (e *Engine) renderOnce(root *Node) (*pdf.Document, error) {
 	doc := pdf.NewDocument()
 	doc.Compress = e.opts.Compress
 	var links []pendingLink
-	nextNum := 1
+	endPrev := 0 // ending page number of the previous sequence (FOP: Root.endingPageNumberOfPreviousSequence)
 	title := ""
 	nseq := 0
+	var seqNodes []*Node
 	for _, c := range root.Children {
-		if c.Name != "page-sequence" {
-			continue
+		if c.Name == "page-sequence" {
+			seqNodes = append(seqNodes, c)
 		}
+	}
+	for si, c := range seqNodes {
 		nseq++
 		sr := &seqRun{e: e, ps: c, masters: masters, seqs: seqs, doc: doc, links: &links,
 			statics: map[string]*Node{}, carry: map[string]*Node{}}
@@ -111,25 +135,11 @@ func (e *Engine) renderOnce(root *Node) (*pdf.Document, error) {
 			sr.statics[sc.Props["flow-name"]] = sc
 		}
 		sr.pageFmt = c.Props["format"]
-		start := nextNum
-		switch v := strings.TrimSpace(c.Props["initial-page-number"]); v {
-		case "", "auto":
-			if nseq == 1 {
-				start = 1
-			}
-		case "auto-odd":
-			if start%2 == 0 {
-				start++
-			}
-		case "auto-even":
-			if start%2 == 1 {
-				start++
-			}
-		default:
-			if n, err := strconv.Atoi(v); err == nil {
-				start = n
-			}
+		if si+1 < len(seqNodes) {
+			sr.nextInitial = strings.TrimSpace(seqNodes[si+1].Props["initial-page-number"])
+			sr.hasNext = true
 		}
+		start := initialPageNumber(c.Props["initial-page-number"], endPrev)
 		if title == "" {
 			if t := c.Find("title"); t != nil {
 				title = strings.Join(strings.Fields(t.TextContent()), " ")
@@ -139,7 +149,7 @@ func (e *Engine) renderOnce(root *Node) (*pdf.Document, error) {
 		if err != nil {
 			return nil, err
 		}
-		nextNum = n
+		endPrev = n - 1
 	}
 	if nseq == 0 {
 		return nil, fmt.Errorf("fo: document contains no fo:page-sequence")
@@ -335,27 +345,7 @@ func (s *seqRun) run(startNum int) (int, error) {
 			return 0, fmt.Errorf("fo: too many pages (infinite pagination loop?)")
 		}
 	}
-	// force-page-count
-	total := pnum - firstPageNum
-	switch strings.TrimSpace(ps.Props["force-page-count"]) {
-	case "even", "end-on-even":
-		if (pnum-1)%2 == 1 {
-			// last page number is odd -> add a blank page to end on an even page
-			if m, err := picker.pick(pageCtx{odd: pnum%2 == 1, blank: true, last: true}); err == nil {
-				s.renderPage(m, nil, pnum, false)
-				pnum++
-			}
-		}
-	case "odd", "end-on-odd":
-		if (pnum-1)%2 == 0 {
-			if m, err := picker.pick(pageCtx{odd: pnum%2 == 1, blank: true, last: true}); err == nil {
-				s.renderPage(m, nil, pnum, false)
-				pnum++
-			}
-		}
-	case "even-document":
-	}
-	_ = total
+	pnum = s.doForcePageCount(picker, firstPageNum, pnum)
 	for _, id := range []string{ps.Props["id"], flowID(ps)} {
 		if id != "" {
 			s.e.ids[id+"\x00last"] = idInfo{pageNum: s.lastNum}
@@ -415,9 +405,12 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 			q[0].noBrk, q[0].brk = true, brkNone
 			return placed, q, k
 		}
-		gap := 0.0
+		var gap float64
 		if prev != nil {
-			gap = math.Max(prev.after(), it.before())
+			gap = resolveSpaces(concatSp(prev.afterSp(), it.beforeSp()))
+		} else {
+			// start of a column: conditional space is discarded, retained space stays
+			gap = resolveSpaces(discardAtBreak(it.beforeSp(), false))
 		}
 		// keep-with-next chains
 		if y > 0 && (it.keepNext() || (len(q) > 1 && laidOut(1) && q[1].item.keepPrev())) {
@@ -432,7 +425,7 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) ([]placedItem, [
 				if !q[j+1].noBrk && maxBrk(q[j+1].brk, nx.breakBefore()) != brkNone {
 					break
 				}
-				total += math.Max(cur.after(), nx.before()) + nx.height()
+				total += resolveSpaces(concatSp(cur.afterSp(), nx.beforeSp())) + nx.height()
 				cur = nx
 				j++
 			}
@@ -547,4 +540,76 @@ func (s *seqRun) renderPage(pm *pageMaster, placed []placedItem, pnum int, first
 	for _, m := range rc.markers {
 		s.carry[m.class] = m.node
 	}
+}
+
+// doForcePageCount is a port of AbstractPageSequenceLayoutManager.doForcePageCount;
+// pnum is the number of the next page (the last page has number pnum-1).
+func (s *seqRun) doForcePageCount(picker *masterPicker, startNum, pnum int) int {
+	fpc := strings.TrimSpace(s.ps.Props["force-page-count"])
+	if fpc == "" {
+		fpc = "auto"
+	}
+	if fpc == "auto" && s.hasNext {
+		switch ni := s.nextInitial; ni {
+		case "", "auto":
+			fpc = "no-force"
+		case "auto-odd":
+			fpc = "end-on-even"
+		case "auto-even":
+			fpc = "end-on-odd"
+		default:
+			n, err := strconv.Atoi(ni)
+			if err != nil || n <= 0 {
+				n = 1
+			}
+			if n%2 == 0 {
+				fpc = "end-on-odd"
+			} else {
+				fpc = "end-on-even"
+			}
+		}
+	}
+	cur := pnum - 1
+	addBlank := func() {
+		if m, err := picker.pick(pageCtx{odd: pnum%2 == 1, blank: true, last: true}); err == nil {
+			s.renderPage(m, nil, pnum, false)
+			pnum++
+		}
+	}
+	rel := cur - startNum + 1
+	switch fpc {
+	case "even":
+		if rel%2 != 0 {
+			addBlank()
+		}
+	case "odd":
+		if rel%2 == 0 {
+			addBlank()
+		}
+	case "end-on-even":
+		if cur%2 != 0 {
+			addBlank()
+		}
+	case "end-on-odd":
+		if cur%2 == 0 {
+			addBlank()
+		}
+	case "doubly-even":
+		for (pnum-1-startNum+1)%4 != 0 {
+			addBlank()
+		}
+	case "end-on-doubly-even":
+		for (pnum-1)%4 != 0 {
+			addBlank()
+		}
+	case "doubly-odd":
+		for (pnum-1-startNum+1)%4 != 3 {
+			addBlank()
+		}
+	case "end-on-doubly-odd":
+		for (pnum-1)%4 != 3 {
+			addBlank()
+		}
+	}
+	return pnum
 }

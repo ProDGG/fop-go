@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/><fo:region-before extent="8mm"/><fo:region-after extent="8mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block text-align="start" width="100pt" start-indent="150pt" end-indent="150pt" space-after="8pt">well-known state-of-the-art self-contained real-time long-running multi-purpose well-known state-of-the-art self-contained real-time long-running multi-purpose well-known state-of-the-art self-contained real-time long-running multi-purpose </fo:block><fo:block text-align="center" width="100pt" start-indent="150pt" end-indent="150pt" space-after="8pt">well-known state-of-the-art self-contained real-time long-running multi-purpose well-known state-of-the-art self-contained real-time long-running multi-purpose well-known state-of-the-art self-contained real-time long-running multi-purpose </fo:block><fo:block text-align="justify" width="100pt" start-indent="150pt" end-indent="150pt" space-after="8pt">well-known state-of-the-art self-contained real-time long-running multi-purpose well-known state-of-the-art self-contained real-time long-running multi-purpose well-known state-of-the-art self-contained real-time long-running multi-purpose </fo:block>
+</fo:flow></fo:page-sequence></fo:root>

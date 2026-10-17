@@ -567,7 +567,7 @@ func (d *Document) writeFont(w *writer, f *Font, idx int) int {
 	var ws strings.Builder
 	ws.WriteString("[")
 	for _, g := range gids {
-		fmt.Fprintf(&ws, "%d[%d]", g, int(float64(ft.Advance(g))*scale+0.5))
+		fmt.Fprintf(&ws, "%d[%d]", g, ft.Advance(g)*1000/ft.UnitsPerEm)
 	}
 	ws.WriteString("]")
 	cid := w.add([]byte(fmt.Sprintf("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /CIDToGIDMap /Identity /DW 1000 /W %s >>",

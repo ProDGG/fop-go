@@ -169,7 +169,8 @@ func (a altRef) matches(pc pageCtx) bool {
 
 // ---------- parsing ----------
 
-const a4W, a4H = 595.28, 841.89
+// FOP defaults (foproperties.xml): page-width 8in, page-height 11in.
+const defPageW, defPageH = 612.0, 792.0
 
 func (e *Engine) parseMasters(root *Node) (map[string]*pageMaster, map[string]*seqMaster, error) {
 	masters := map[string]*pageMaster{}
@@ -186,7 +187,7 @@ func (e *Engine) parseMasters(root *Node) (map[string]*pageMaster, map[string]*s
 			if name == "" {
 				return nil, nil, fmt.Errorf("fo:simple-page-master without master-name")
 			}
-			pm := &pageMaster{name: name, w: a4W, h: a4H}
+			pm := &pageMaster{name: name, w: defPageW, h: defPageH}
 			if v, ok := lc.length(c, "page-width", 0); ok {
 				pm.w = v
 			}
@@ -198,7 +199,7 @@ func (e *Engine) parseMasters(root *Node) (map[string]*pageMaster, map[string]*s
 			pm.ml = lc.lengthOr(c, "margin-left", pm.w, 0)
 			pm.mr = lc.lengthOr(c, "margin-right", pm.w, 0)
 			for _, rn := range c.Children {
-				r := &regionDef{n: rn, columns: 1, gap: 12}
+				r := &regionDef{n: rn, columns: 1, gap: 18}
 				r.extent = lc.lengthOr(rn, "extent", 0, 0)
 				r.precedence = rn.Props["precedence"] == "true"
 				r.mt = lc.lengthOr(rn, "margin-top", pm.h, 0)
@@ -218,7 +219,7 @@ func (e *Engine) parseMasters(root *Node) (map[string]*pageMaster, map[string]*s
 					if v, err := strconv.Atoi(strings.TrimSpace(rn.Props["column-count"])); err == nil && v > 1 {
 						r.columns = v
 					}
-					r.gap = lc.lengthOr(rn, "column-gap", pm.w, 12)
+					r.gap = lc.lengthOr(rn, "column-gap", pm.w, 18)
 					pm.body = r
 				case "region-before":
 					r.name = rn.Props["region-name"]

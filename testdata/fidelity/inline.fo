@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/><fo:region-before extent="8mm"/><fo:region-after extent="8mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block>Normal <fo:inline font-weight="bold">bold</fo:inline> <fo:inline font-style="italic">italic</fo:inline> <fo:inline baseline-shift="super" font-size="70%">super</fo:inline> x<fo:inline baseline-shift="sub" font-size="70%">sub</fo:inline> <fo:inline font-size="20pt">big</fo:inline> <fo:inline text-decoration="underline">under</fo:inline> <fo:inline text-decoration="line-through">strike</fo:inline> <fo:inline letter-spacing="2pt">spaced</fo:inline> <fo:inline word-spacing="8pt">word spaced text here</fo:inline> end.</fo:block>
+<fo:block line-height="20pt" space-before="10pt">Line height 20pt with <fo:inline font-size="24pt" line-height="1">huge</fo:inline> inline and <fo:inline baseline-shift="5pt">raised 5pt</fo:inline> then <fo:inline vertical-align="super">va-super</fo:inline>.</fo:block>
+<fo:block font-size="14pt" line-height="1.5" space-before="10pt">Relative line-height 1.5 at 14pt. Second sentence of the same paragraph to wrap around the line end for sure, yes.</fo:block>
+<fo:block text-transform="uppercase" space-before="10pt">upper <fo:inline text-transform="capitalize">cap words</fo:inline> case</fo:block>
+<fo:block space-before="10pt" font-size="8pt">Small <fo:inline background-color="#ffee88" padding="2pt" border="0.5pt solid black">boxed inline</fo:inline> text.</fo:block>
+<fo:block space-before="10pt" white-space-collapse="false" white-space-treatment="preserve" linefeed-treatment="preserve" font-family="Liberation Mono">pre  formatted
+  second   line
+
+fourth after blank</fo:block>
+<fo:block space-before="10pt">non&#160;breaking&#160;space and soft&#173;hyphen&#173;ated &#8203;zero&#8203;width words that wrap at the end of line okay okay okay okay okay okay okay</fo:block>
+
+</fo:flow></fo:page-sequence></fo:root>

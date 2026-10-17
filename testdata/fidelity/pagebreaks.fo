@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/><fo:region-before extent="8mm"/><fo:region-after extent="8mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block space-after="6pt" >et эйусмод ullamco nisi лорем aliquip ипсум ullamco амет ипсум сит ипсум долор</fo:block>
+<fo:block space-after="6pt" >ипсум aliquip nostrud долор dolore dolore et эйусмод консектетур эйусмод долор темпор инцидидунт minim инцидидунт aliqua до темпор сед адиписцинг эйусмод ut сит амет magna лорем nostrud exercitation инцидидунт laboris долор aliqua консектетур ипсум темпор labore enim minim laboris magna</fo:block>
+<fo:block space-after="6pt" break-before="page">minim laboris ипсум enim commodo ut ипсум темпор minim et ullamco nostrud эйусмод ut nostrud ut labore лорем элит адиписцинг magna сед nostrud aliqua долор laboris ut элит ut амет commodo лорем consequat эйусмод</fo:block>
+<fo:block space-after="6pt" keep-with-next="always">commodo magna laboris aliquip сед сит labore nostrud сит nisi exercitation veniam aliquip commodo dolore laboris инцидидунт veniam сит exercitation эйусмод aliqua magna сит laboris aliqua nostrud лорем et амет элит ullamco инцидидунт</fo:block>
+<fo:block space-after="6pt" >dolore долор aliqua сит veniam commodo инцидидунт консектетур nisi лорем эйусмод nisi</fo:block>
+<fo:block space-after="6pt" orphans="4" widows="4">сит лорем aliquip сит veniam et nisi nostrud до aliqua до laboris долор ипсум ullamco aliqua dolore dolore nostrud элит сит magna exercitation сит consequat magna ипсум magna эйусмод aliquip aliqua консектетур nisi долор элит консектетур minim элит labore enim nostrud ullamco инцидидунт сед темпор enim инцидидунт темпор magna ut долор инцидидунт dolore элит consequat ut nisi exercitation консектетур ut nostrud aliqua ullamco aliqua</fo:block>
+<fo:block space-after="6pt" keep-together="always">consequat dolore veniam et амет minim инцидидунт commodo commodo амет консектетур сит et exercitation et consequat nostrud dolore labore aliqua exercitation aliquip консектетур амет сед ullamco адиписцинг амет aliqua dolore эйусмод consequat элит aliquip nostrud magna ullamco до veniam nostrud aliquip ut enim aliquip aliqua aliqua сед commodo адиписцинг до лорем сед et</fo:block>
+<fo:block space-after="6pt" >инцидидунт адиписцинг консектетур aliqua темпор элит эйусмод et ullamco aliquip амет ut nostrud et nostrud enim адиписцинг labore aliqua nisi commodo nisi minim magna лорем et exercitation долор aliquip инцидидунт laboris exercitation commodo ипсум labore consequat элит commodo элит minim nostrud ullamco veniam долор адиписцинг aliquip сед элит commodo адиписцинг ullamco сед амет консектетур enim nostrud veniam aliquip ипсум commodo consequat</fo:block>
+<fo:block space-after="6pt" break-before="odd-page">консектетур aliquip ипсум эйусмод консектетур ut долор exercitation laboris долор сит долор сед nisi consequat до ипсум темпор labore aliqua exercitation veniam эйусмод лорем лорем эйусмод</fo:block>
+<fo:block space-after="6pt" >ut инцидидунт et долор адиписцинг minim aliqua exercitation et инцидидунт амет magna эйусмод сит commodo сед долор veniam ut сит labore commodo dolore consequat сед сит dolore nostrud темпор veniam ullamco</fo:block>
+<fo:block space-after="6pt" break-after="page">ullamco labore до veniam veniam veniam minim laboris nisi сед сит ullamco эйусмод veniam aliqua magna dolore сит veniam et dolore темпор ипсум nostrud до veniam exercitation aliqua exercitation консектетур minim minim exercitation</fo:block>
+<fo:block space-after="6pt" >амет консектетур темпор commodo consequat minim labore сит сит consequat magna амет consequat эйусмод minim exercitation minim enim ut magna до minim консектетур labore et до laboris консектетур nostrud долор сит nostrud консектетур ullamco magna magna aliqua exercitation инцидидунт темпор сит сед сед инцидидунт ипсум aliquip амет ипсум et dolore</fo:block>
+<fo:block space-after="6pt" break-before="even-page">элит nostrud ullamco dolore темпор commodo эйусмод инцидидунт labore magna laboris ullamco долор темпор et aliquip сит амет сед aliqua сит veniam сит aliqua ullamco consequat exercitation</fo:block>
+
+</fo:flow></fo:page-sequence></fo:root>

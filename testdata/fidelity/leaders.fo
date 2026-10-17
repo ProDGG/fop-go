@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fo:root xmlns:fo="http://www.w3.org/1999/XSL/Format" font-family="Liberation Sans" font-size="10pt">
+<fo:layout-master-set>
+ <fo:simple-page-master master-name="p" page-width="210mm" page-height="297mm" margin="20mm">
+  <fo:region-body margin-top="10mm" margin-bottom="10mm"/><fo:region-before extent="8mm"/><fo:region-after extent="8mm"/>
+ </fo:simple-page-master>
+</fo:layout-master-set>
+<fo:page-sequence master-reference="p"><fo:flow flow-name="xsl-region-body">
+<fo:block text-align-last="justify" space-after="4pt">Item 0<fo:leader leader-pattern="dots" leader-length.minimum="10pt" leader-length.maximum="100%"/>0</fo:block><fo:block text-align-last="justify" space-after="4pt">Item 1<fo:leader leader-pattern="rule" leader-length.minimum="10pt" leader-length.maximum="100%" rule-thickness="1pt"/>7</fo:block><fo:block text-align-last="justify" space-after="4pt">Item 2<fo:leader leader-pattern="space" leader-length.minimum="10pt" leader-length.maximum="100%"/>14</fo:block><fo:block text-align-last="justify" space-after="4pt">Item 3<fo:leader leader-pattern="dots" leader-length="50pt"/>21</fo:block><fo:block text-align-last="justify" space-after="4pt">Item 4<fo:leader leader-pattern="rule" leader-length.optimum="80pt" leader-length.maximum="80pt" rule-style="dashed"/>28</fo:block><fo:block>no justify <fo:leader leader-pattern="dots" leader-length.minimum="10pt" leader-length.optimum="40pt" leader-length.maximum="100%"/> end</fo:block>
+</fo:flow></fo:page-sequence></fo:root>

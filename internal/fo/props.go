@@ -23,25 +23,27 @@ type Node struct {
 	fsDone bool
 }
 
-var inherited = map[string]bool{
-	"color": true, "font-family": true, "font-size": true, "font-style": true, "font-weight": true,
-	"font-variant": true, "font-stretch": true, "letter-spacing": true, "word-spacing": true,
-	"line-height": true, "text-align": true, "text-align-last": true, "text-indent": true,
-	"text-transform": true, "text-decoration": true, "white-space-collapse": true,
-	"white-space-treatment": true, "linefeed-treatment": true, "wrap-option": true, "white-space": true,
-	"keep-together": true, "orphans": true, "widows": true, "hyphenate": true, "language": true,
-	"country": true, "start-indent": false, "end-indent": false, "visibility": true, "writing-mode": true,
-	"direction": true, "display-align": false, "border-collapse": true, "border-separation": true,
-	"reference-orientation": false, "line-height-shift-adjustment": true, "role": true,
-	"font-kerning": true, "text-shadow": true,
-}
+// inherited and initial are derived from Apache FOP's property definitions
+// (props_gen.go) with a few adjustments for how this renderer draws things.
+var (
+	inherited = map[string]bool{}
+	initial   = map[string]string{}
+)
 
-var initial = map[string]string{
-	"font-family": "serif", "font-size": "12pt", "font-weight": "normal", "font-style": "normal",
-	"color": "black", "line-height": "normal", "text-align": "start", "white-space-collapse": "true",
-	"linefeed-treatment": "treat-as-space", "white-space-treatment": "ignore-if-surrounding-linefeed",
-	"wrap-option": "wrap", "orphans": "2", "widows": "2", "border-collapse": "collapse",
-	"text-transform": "none", "text-decoration": "none",
+func init() {
+	for k, v := range fopInherited {
+		inherited[k] = v
+	}
+	for k, v := range fopInitial {
+		initial[k] = v
+	}
+	// FOP applies text decorations to nested inlines through the area tree
+	// rather than through property inheritance; the effect is the same.
+	inherited["text-decoration"] = true
+	inherited["white-space"] = true
+	inherited["text-shadow"] = true
+	initial["line-height"] = "normal"
+	initial["font-size"] = "12pt"
 }
 
 // Get returns the specified or inherited value of a property ("" if none).
@@ -409,6 +411,12 @@ func setProps(attrs [][2]string) map[string]string {
 			"border-color", "background", "font", "page-break-before", "page-break-after", "page-break-inside":
 			continue
 		}
+		switch name {
+		case "margin-left":
+			props["\x00ml"] = "1" // explicit (not via the margin shorthand): forces start-indent to be derived from it
+		case "margin-right":
+			props["\x00mr"] = "1"
+		}
 		name = strings.TrimSuffix(name, ".length")
 		for _, pfx := range []string{"border", "padding"} {
 			if strings.HasPrefix(name, pfx+"-") {
@@ -419,7 +427,7 @@ func setProps(attrs [][2]string) map[string]string {
 				}
 			}
 		}
-		if strings.HasSuffix(name, ".conditionality") || strings.HasSuffix(name, ".precedence") {
+		if (strings.HasSuffix(name, ".conditionality") || strings.HasSuffix(name, ".precedence")) && !strings.HasPrefix(name, "space-") {
 			continue
 		}
 		switch name {
