@@ -90,22 +90,49 @@ Times и Courier; латиница, кириллица, греческий). С�
 ## HTML-отчёты (Flying Saucer + iText)
 
 Если результат XSLT — HTML-документ (корневой элемент `html`), PDF строится не FO-движком, а
-портом конвейера **Flying Saucer 9.1.22 + iText 5**: CSS 2.1 (каскад, `@page`, margin boxes,
-`position: running()`, `counter(page|pages)`), блочная/строчная вёрстка, float, таблицы
-(fixed/auto, collapsed borders), позиционирование (`relative/absolute/fixed`, `z-index`),
-`overflow: hidden`, закладки по `h1..h6`, ссылки, SVG/PNG/JPEG. Чтобы вёрстка совпадала с
-оригиналом, шрифт `Arial` берётся с метриками настоящего Arial (встроенный Liberation Sans).
+портом конвейера **Flying Saucer 9.1.22 + iText 5.5** (`internal/xhr`), цель — вывод, совпадающий
+с эталонным PDF, а не просто «похожий».
 
 ```
 fop-go -xml report.xml -xmlroot Root -xsl templates/IndividualAdvancedReport.xslt -pdf report.pdf
+fop-go ... -font "Arial=/path/arial.ttf" -font "Arial=/path/arialbd.ttf,bold"   # настоящий Arial
 ```
 
-* `-xmlroot Root` — сделать элемент `Root` корнем документа (шаблоны обращаются к `/Root/...`);
-  в API — `Options.SourceRoot`.
-* `PATH_TO_FILE` в `xsl:import` заменяется на каталог шаблона (`Options.PathPlaceholder`).
-* Результат XSLT сериализуется с `indent="yes"` и разбирается заново, как в эталонном конвейере.
-* Тесты `internal/xhr` сравнивают позиции текста с выводом настоящего Flying Saucer на синтетических
-  фикстурах (`internal/xhr/testdata`).
+**Что реализовано:** CSS 2.1 (каскад UA < автор, `!important`, специфичность, `@page`, margin boxes,
+`position: running()`, `counter(page|pages)`), блочная и строчная вёрстка (порт `BlockBoxing`,
+`InlineBoxing`, `Breaker` с таблицами `BreakIterator` из JDK), float, таблицы (fixed/auto, collapsed
+borders), позиционирование (`relative/absolute/fixed`, `z-index`, слои как в `Layer`), `overflow:
+hidden`, постраничная разбивка, закладки (`h1..h6` из DOM, `<head><bookmarks>`), ссылки, PNG/JPEG/GIF,
+SVG, минимальный однострочный `display:flex` (шапка отчётов).
+
+**Как достигается совпадение с эталоном:**
+
+* Метрики шрифтов как у iText: ascent/descent из `head`-bbox, целочисленные ширины глав, округления
+  `ITextTextRenderer`; базовые 14 шрифтов (Helvetica/Times/Courier) берут метрики и ширины из AFM iText.
+* `Arial` по умолчанию — встроенный Liberation Sans с вертикальными метриками Arial (геометрия
+  совпадает, форма букв чуть отличается). Для полного совпадения передайте настоящие `arial.ttf` /
+  `arialbd.ttf` через `-font` / `Options.Fonts` (тогда подмена метрик не нужна).
+* Числа в PDF форматируются как `ByteBuffer.formatDouble` iText, фоны вырезаются по clip как
+  `java.awt.geom.Area`, порядок отрисовки (фон → float → текст → картинки → позиционированные слои) как в
+  `Layer.paint`.
+* SVG в `<img>` растеризуется в антиалиасный битмап интринсик-размера (как в эталонном развёртывании);
+  логотип 150×40 совпадает попиксельно.
+* Растровые картинки `data:` декодируются строго как `java.util.Base64.getDecoder()` — перенос строки
+  внутри base64 (как у QR-кода в шаблонах `personal`) отбрасывает картинку, как делает Flying Saucer.
+* Результат XSLT сериализуется с `indent="yes"` и разбирается заново — так возвращается
+  пробельный текст между элементами, который влияет на вёрстку.
+
+**Опции:** `-xmlroot Root` (`Options.SourceRoot`) делает `Root` корнем входного XML (шаблоны обращаются
+к `/Root/...`); `PATH_TO_FILE` в `xsl:import` заменяется на каталог шаблона (`Options.PathPlaceholder`).
+
+**Проверка:** тесты `internal/xhr` сравнивают позиции текста с выводом настоящего Flying Saucer на
+синтетических фикстурах (`internal/xhr/testdata`, эталоны получены на оригинальной реализации).
+`tools/xhrdev` рендерит HTML напрямую и может сохранить дамп дерева боксов
+(`xhrdev in.html out.pdf boxes.txt`) для сравнения с Java.
+
+**Известные отличия от эталонного PDF:** форма букв без настоящего Arial; блоки, версия шаблонов
+которых в проде отличается от присланной; пробельные строки в margin-боксах не рисуются; нет
+`-fs-table-paginate` (повтор `thead`), `border-radius`/`box-shadow` (во Flying Saucer 9.1.22 их тоже нет).
 
 ## Ограничения (чего пока нет)
 
@@ -150,6 +177,8 @@ poppler-utils), `comparepdf.py`, `linecmp.py`, `imgdiff.py` (Pillow).
 | `internal/font` | TTF: cmap, метрики, подмножество; менеджер шрифтов; встроенные Liberation |
 | `internal/pdf` | запись PDF 1.7 |
 | `internal/fo` | свойства FO, вёрстка, пагинация, рендер |
+| `internal/xhr` | HTML/CSS-движок, совместимый с Flying Saucer + iText 5 |
+| `tools/xhrdev` | отладочная утилита: HTML → PDF, дамп боксов |
 | `cmd/fop-go` | командная строка |
 
 Примеры: `examples/invoice` (XML+XSLT → счёт) и `examples/features` (многостраничный FO:
