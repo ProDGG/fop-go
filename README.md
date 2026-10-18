@@ -164,8 +164,10 @@ SVG, минимальный однострочный `display:flex` (шапка 
 
 На тестовых документах (`testdata/fidelity/*.fo`) совпадают разбиение на строки и страницы и
 положение базовых линий (до 0.01pt); растровое отличие страниц — доли процента.
-Инструменты сравнения в `tools/`: `fidelity.sh` (нужны Java и jar-файлы FOP 2.x в `$FOPLIBS`,
-poppler-utils), `comparepdf.py`, `linecmp.py`, `imgdiff.py` (Pillow).
+Инструменты на Go в `tools/` (Python не нужен): `go run ./tools/fidelity` (нужны Java и jar-файлы FOP
+2.x в `$FOPLIBS`, poppler-utils) и `go run ./tools/pdfcmp {words|lines|baselines|texts|img} a.pdf b.pdf`
+для сравнения двух PDF по словам, строкам, базовым линиям, позициям текста и пикселям. Таблицы
+свойств `internal/fo/props_gen.go` пересоздаются командой `FOP_SRC=/path/to/xmlgraphics-fop go generate ./internal/fo`.
 
 ## Структура
 
@@ -178,7 +180,8 @@ poppler-utils), `comparepdf.py`, `linecmp.py`, `imgdiff.py` (Pillow).
 | `internal/pdf` | запись PDF 1.7 |
 | `internal/fo` | свойства FO, вёрстка, пагинация, рендер |
 | `internal/xhr` | HTML/CSS-движок, совместимый с Flying Saucer + iText 5 |
-| `tools/xhrdev` | отладочная утилита: HTML → PDF, дамп боксов |
+| `internal/pdfscan` | разбор текстовых операций PDF (для сравнений и тестов) |
+| `tools/xhrdev`, `tools/pdfcmp`, `tools/fidelity`, `tools/genprops` | отладка, сравнение PDF, сверка с FOP, генератор свойств |
 | `cmd/fop-go` | командная строка |
 
 Примеры: `examples/invoice` (XML+XSLT → счёт) и `examples/features` (многостраничный FO:

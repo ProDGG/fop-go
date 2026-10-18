@@ -1,54 +1,26 @@
 package xhr
 
 import (
-	"bytes"
-	"compress/zlib"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/ProDGG/fop-go/internal/pdfscan"
 	"github.com/ProDGG/fop-go/xmldom"
 )
-
-var textOp = regexp.MustCompile(`/F\d+ ([-\d.]+) Tf ([-\d.]+) ([-\d.]+) Td`)
 
 type textPos struct{ x, y, size float64 }
 
 // pageTexts extracts the text origins of every page content stream.
 func pageTexts(t *testing.T, pdf []byte) [][]textPos {
 	var pages [][]textPos
-	rest := pdf
-	for {
-		i := bytes.Index(rest, []byte("stream\n"))
-		if i < 0 {
-			break
-		}
-		rest = rest[i+7:]
-		j := bytes.Index(rest, []byte("endstream"))
-		if j < 0 {
-			break
-		}
-		body := rest[:j]
-		rest = rest[j+9:]
-		zr, err := zlib.NewReader(bytes.NewReader(body))
-		if err != nil {
-			continue
-		}
-		data, err := io.ReadAll(zr)
-		if err != nil || !bytes.Contains(data, []byte("BT")) && !bytes.Contains(data, []byte(" re")) {
-			continue
-		}
+	for _, p := range pdfscan.Pages(pdf) {
 		var ops []textPos
-		for _, m := range textOp.FindAllStringSubmatch(string(data), -1) {
-			sz, _ := strconv.ParseFloat(m[1], 64)
-			x, _ := strconv.ParseFloat(m[2], 64)
-			y, _ := strconv.ParseFloat(m[3], 64)
-			ops = append(ops, textPos{x, y, sz})
+		for _, o := range p {
+			ops = append(ops, textPos{o.X, o.Y, o.Size})
 		}
 		pages = append(pages, ops)
 	}
