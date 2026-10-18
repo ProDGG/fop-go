@@ -24,6 +24,9 @@ type Options struct {
 	Producer string
 	// AllowRemote enables loading http(s) images.
 	AllowRemote bool
+	// ReadFile, when set, loads local images instead of the OS file system
+	// (used for templates that live in an fs.FS).
+	ReadFile func(path string) ([]byte, error)
 	// NoKerning disables pair kerning (FOP applies it by default).
 	NoKerning bool
 	// MaxPages stops rendering with pdf.ErrPageLimit once the document needs

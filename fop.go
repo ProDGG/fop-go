@@ -65,6 +65,7 @@ type Options struct {
 	SourceResolution float64
 	// AllowRemote permits http(s) image URLs.
 	AllowRemote bool
+	readFile    func(path string) ([]byte, error) // set for templates in an fs.FS
 	// MaxPages aborts rendering with ErrPageLimit when the document needs more
 	// pages: a guard against runaway layouts (e.g. a huge font size coming
 	// from the data). 0 means DefaultMaxPages, a negative value no limit.
@@ -135,6 +136,11 @@ func transformBytes(xmlData, xslData []byte, opts Options, xmlPath string) (*xml
 	if err != nil {
 		return nil, err
 	}
+	return runStylesheet(ss, xmlData, opts, xmlPath)
+}
+
+// runStylesheet applies a compiled stylesheet to the XML input.
+func runStylesheet(ss *xslt.Stylesheet, xmlData []byte, opts Options, xmlPath string) (*xmldom.Node, error) {
 	src, err := xmldom.ParseBytes(xmlData)
 	if err != nil {
 		return nil, fmt.Errorf("parsing XML input: %w", err)
@@ -233,7 +239,7 @@ func RenderFODocument(doc *xmldom.Node, w io.Writer, opts Options) error {
 	pdfDoc, err := fo.Render(tree, fo.Options{
 		BaseDir: opts.BaseDir, Fonts: fm, Warn: opts.Warn, PxPerPt: pxPt, Compress: !opts.NoCompress,
 		Title: opts.Title, Author: opts.Author, Subject: opts.Subject, Keywords: opts.Keywords,
-		Creator: opts.Creator, Producer: opts.Producer, AllowRemote: opts.AllowRemote, MaxPages: opts.maxPages(),
+		Creator: opts.Creator, Producer: opts.Producer, AllowRemote: opts.AllowRemote, MaxPages: opts.maxPages(), ReadFile: opts.readFile,
 	})
 	if err != nil {
 		return err
@@ -359,6 +365,9 @@ func renderHTMLDocument(doc *xmldom.Node, w io.Writer, opts Options) error {
 		ResolveResource: func(uri string) ([]byte, error) {
 			if strings.HasPrefix(uri, "file:") {
 				uri = strings.TrimPrefix(strings.TrimPrefix(uri, "file://"), "file:")
+			}
+			if opts.readFile != nil {
+				return opts.readFile(uri)
 			}
 			if !filepath.IsAbs(uri) {
 				uri = filepath.Join(base, uri)

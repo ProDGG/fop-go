@@ -63,6 +63,28 @@ foTree, err := fop.Transform(xmlReader, xslReader, fop.Options{})
 err = fop.RenderFO(foReader, pdfWriter, fop.Options{})
 ```
 
+Шаблоны можно держать внутри бинарника или в любой другой `fs.FS` (`embed.FS`, `fstest.MapFS`, `os.DirFS`);
+XML при этом приходит из `io.Reader`. Шаблоны компилируются при первом обращении и кэшируются,
+`Templates` безопасен для параллельных вызовов; `xsl:import`/`xsl:include`/`document()` и пути картинок
+разрешаются внутри той же `fs.FS`:
+
+```go
+//go:embed templates
+var tpl embed.FS
+
+var reports = fop.NewTemplates(tpl, fop.Options{SourceRoot: "Root"}) // один раз на процесс
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/pdf")
+	if err := reports.Render("templates/IndividualAdvancedReport.xslt", r.Body, w); err != nil {
+		// ...
+	}
+}
+```
+
+`reports.WithParams(map[string]string{...})` передаёт `xsl:param`, `reports.Compile(имена...)` проверяет
+шаблоны при старте, `fop.RenderFS(fsys, имя, xml, w, opts)` — разовый вызов.
+
 Параметры `Options`: `BaseDir` (для относительных путей картинок), `XSLBase` (для
 `xsl:include`/`xsl:import`/`document()`), `Params` (xsl:param), `Fonts`/`FontDirs`
 (дополнительные TTF), метаданные (`Title`, `Author`, …), `NoCompress`, `SourceResolution`

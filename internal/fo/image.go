@@ -65,6 +65,9 @@ func (e *Engine) readSource(src string) ([]byte, error) {
 	if u, err := url.PathUnescape(p); err == nil && strings.HasPrefix(src, "file:") {
 		p = u
 	}
+	if e.opts.ReadFile != nil {
+		return e.opts.ReadFile(p)
+	}
 	cands := []string{p}
 	if !filepath.IsAbs(p) && e.opts.BaseDir != "" {
 		cands = []string{filepath.Join(e.opts.BaseDir, p), p}
