@@ -279,6 +279,7 @@ iText), разбор встроенных шрифтов один раз на п
 | `internal/pdfscan` | разбор текстовых операций PDF (для сравнений и тестов) |
 | `tools/xhrdev`, `tools/pdfcmp`, `tools/fidelity`, `tools/genprops` | отладка, сравнение PDF, сверка с FOP, генератор свойств |
 | `cmd/fop-go` | командная строка |
+| `java-service` | эталонный HTTP-сервис на Java (Flying Saucer 9.1.22 + iText 5.5.12): XML + XSLT → PDF, см. `java-service/README.md` |
 
 Примеры: `examples/invoice` (XML+XSLT → счёт) и `examples/features` (многостраничный FO:
 оглавление с лидерами, таблица на несколько страниц, колонки, изображения, маркеры).

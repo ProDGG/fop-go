@@ -23,3 +23,18 @@ jobs:
         run: go vet ./...
       - name: test
         run: go test -race ./...
+
+  java-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: java-service/pom.xml
+      - name: build
+        run: mvn -B -q -f java-service/pom.xml package
+      - name: smoke test
+        run: java-service/smoke/smoke.sh
