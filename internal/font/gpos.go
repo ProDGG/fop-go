@@ -95,7 +95,6 @@ func xAdvanceOf(b []byte, off, vf int) int {
 
 // loadKern reads the GPOS kern feature lookups.
 func (f *Font) loadKern() {
-	f.gposDone = true
 	g, ok := f.tables["GPOS"]
 	if !ok || len(g) < 10 {
 		return

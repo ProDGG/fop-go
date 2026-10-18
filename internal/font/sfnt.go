@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf16"
 )
 
@@ -40,7 +41,7 @@ type Font struct {
 	loca    []uint32
 	kern    map[uint32]int16
 
-	gposDone    bool
+	gposOnce    sync.Once
 	kernLookups []pairLookup
 }
 
@@ -388,9 +389,7 @@ func (f *Font) Advance(gid uint16) int {
 // 'kern' feature when the font has one (what FOP uses with complex scripts
 // enabled), otherwise the legacy kern table.
 func (f *Font) Kern(a, b uint16) int {
-	if !f.gposDone {
-		f.loadKern()
-	}
+	f.gposOnce.Do(f.loadKern)
 	if len(f.kernLookups) > 0 {
 		v, _ := f.gposKern(a, b)
 		return v

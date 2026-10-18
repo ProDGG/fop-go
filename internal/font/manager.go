@@ -86,26 +86,7 @@ func NewManager() *Manager {
 		warned:      map[string]bool{},
 		sysDirs:     defaultFontDirs(),
 	}
-	type spec struct {
-		file, family string
-		weight       int
-		italic       bool
-	}
-	var specs []spec
-	for _, fam := range []struct{ file, name string }{{"LiberationSans", "liberation sans"}, {"LiberationSerif", "liberation serif"}, {"LiberationMono", "liberation mono"}} {
-		specs = append(specs,
-			spec{fam.file + "-Regular.ttf", fam.name, 400, false},
-			spec{fam.file + "-Bold.ttf", fam.name, 700, false},
-			spec{fam.file + "-Italic.ttf", fam.name, 400, true},
-			spec{fam.file + "-BoldItalic.ttf", fam.name, 700, true})
-	}
-	for _, s := range specs {
-		data, err := fs.ReadFile(bundled, "data/"+s.file)
-		if err != nil {
-			continue
-		}
-		m.faces = append(m.faces, &Face{Family: s.family, Name: s.file, Weight: s.weight, Italic: s.italic, data: data})
-	}
+	m.faces = append(m.faces, bundledFaces()...)
 	return m
 }
 
@@ -394,4 +375,37 @@ func styleDist(a, b *Face) int {
 		d += 1000
 	}
 	return d
+}
+
+var (
+	bundledOnce sync.Once
+	bundled0    []*Face
+)
+
+// bundledFaces returns the embedded Liberation faces; they are read and parsed
+// once per process and shared (read-only) by all managers.
+func bundledFaces() []*Face {
+	bundledOnce.Do(func() {
+		type spec struct {
+			file, family string
+			weight       int
+			italic       bool
+		}
+		var specs []spec
+		for _, fam := range []struct{ file, name string }{{"LiberationSans", "liberation sans"}, {"LiberationSerif", "liberation serif"}, {"LiberationMono", "liberation mono"}} {
+			specs = append(specs,
+				spec{fam.file + "-Regular.ttf", fam.name, 400, false},
+				spec{fam.file + "-Bold.ttf", fam.name, 700, false},
+				spec{fam.file + "-Italic.ttf", fam.name, 400, true},
+				spec{fam.file + "-BoldItalic.ttf", fam.name, 700, true})
+		}
+		for _, s := range specs {
+			data, err := fs.ReadFile(bundled, "data/"+s.file)
+			if err != nil {
+				continue
+			}
+			bundled0 = append(bundled0, &Face{Family: s.family, Name: s.file, Weight: s.weight, Italic: s.italic, data: data})
+		}
+	})
+	return bundled0
 }

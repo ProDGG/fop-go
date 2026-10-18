@@ -130,69 +130,96 @@ func (d *Document) NewPage(w, h float64) *Page {
 	return p
 }
 
-// Num formats a number compactly.
-func Num(f float64) string {
-	s := strconv.FormatFloat(f, 'f', 3, 64)
-	if strings.Contains(s, ".") {
-		s = strings.TrimRight(s, "0")
-		s = strings.TrimSuffix(s, ".")
+// Num formats a number compactly (at most three decimals, no trailing zeros).
+func Num(f float64) string { return string(appendNum(make([]byte, 0, 16), f)) }
+
+// appendNum is the allocation-free core of Num. It rounds f*1000 to the nearest
+// integer instead of going through strconv's slow exact path.
+func appendNum(b []byte, f float64) []byte {
+	if math.IsNaN(f) || math.IsInf(f, 0) || math.Abs(f) >= 1e12 {
+		return strconv.AppendFloat(b, f, 'f', -1, 64)
 	}
-	if s == "-0" || s == "" {
-		return "0"
+	neg := f < 0
+	if neg {
+		f = -f
 	}
-	return s
+	v := int64(math.RoundToEven(f * 1000))
+	if v == 0 {
+		return append(b, '0')
+	}
+	if neg {
+		b = append(b, '-')
+	}
+	b = strconv.AppendInt(b, v/1000, 10)
+	if fr := v % 1000; fr != 0 {
+		b = append(b, '.', byte('0'+fr/100))
+		if fr%100 != 0 {
+			b = append(b, byte('0'+fr/10%10))
+			if fr%10 != 0 {
+				b = append(b, byte('0'+fr%10))
+			}
+		}
+	}
+	return b
 }
 
 func (d *Document) num(f float64) string {
+	return string(d.appendNum(make([]byte, 0, 16), f))
+}
+
+func (d *Document) appendNum(b []byte, f float64) []byte {
 	if d != nil && d.ITextNumbers {
-		return itextNum(f)
+		return appendITextNum(b, f)
 	}
-	return Num(f)
+	return appendNum(b, f)
 }
 
 func (p *Page) n(f float64) string { return p.doc.num(f) }
 
 // itextNum mirrors com.itextpdf.text.pdf.ByteBuffer.formatDouble.
-func itextNum(d float64) string {
+func itextNum(d float64) string { return string(appendITextNum(make([]byte, 0, 16), d)) }
+
+func appendITextNum(b []byte, d float64) []byte {
 	if math.Abs(d) < 0.000015 {
-		return "0"
+		return append(b, '0')
 	}
-	neg := false
 	if d < 0 {
-		neg = true
+		b = append(b, '-')
 		d = -d
-	}
-	var sb strings.Builder
-	if neg {
-		sb.WriteByte('-')
 	}
 	switch {
 	case d < 1.0:
 		d += 0.000005
 		if d >= 1 {
-			sb.WriteByte('1')
-			return sb.String()
+			return append(b, '1')
 		}
 		v := int(d * 100000)
-		sb.WriteString("0.")
-		s := fmt.Sprintf("%05d", v)
-		sb.WriteString(strings.TrimRight(s, "0"))
+		b = append(b, '0', '.')
+		var dig [5]byte
+		for i := 4; i >= 0; i-- {
+			dig[i] = byte('0' + v%10)
+			v /= 10
+		}
+		n := 5
+		for n > 0 && dig[n-1] == '0' {
+			n--
+		}
+		return append(b, dig[:n]...)
 	case d <= 32767:
 		d += 0.005
 		v := int(d * 100)
-		sb.WriteString(strconv.Itoa(v / 100))
+		b = strconv.AppendInt(b, int64(v/100), 10)
 		if f := v % 100; f != 0 {
-			if f%10 == 0 {
-				fmt.Fprintf(&sb, ".%d", f/10)
-			} else {
-				fmt.Fprintf(&sb, ".%02d", f)
+			b = append(b, '.', byte('0'+f/10))
+			if f%10 != 0 {
+				b = append(b, byte('0'+f%10))
 			}
 		}
+		return b
 	default:
 		d += 0.5
-		sb.WriteString(strconv.FormatInt(int64(d), 10))
+		return strconv.AppendInt(b, int64(d), 10)
 	}
-	return sb.String()
 }
 
 func (p *Page) op(format string, args ...interface{}) {
@@ -365,8 +392,17 @@ func (p *Page) Text(f *Font, size, x, y float64, glyphs []Glyph) {
 		return
 	}
 	p.fonts[f] = true
-	p.op("BT /%s %s Tf %s %s Td", f.name, p.n(size), p.n(x), p.n(y))
-	p.buf.WriteByte('[')
+	var tmp [48]byte
+	b := append(tmp[:0], "BT /"...)
+	b = append(b, f.name...)
+	b = append(b, ' ')
+	b = p.doc.appendNum(b, size)
+	b = append(b, " Tf "...)
+	b = p.doc.appendNum(b, x)
+	b = append(b, ' ')
+	b = p.doc.appendNum(b, y)
+	b = append(b, " Td\n["...)
+	p.buf.Write(b)
 	inStr := false
 	for _, g := range glyphs {
 		if _, ok := f.used[g.GID]; !ok {
@@ -376,11 +412,12 @@ func (p *Page) Text(f *Font, size, x, y float64, glyphs []Glyph) {
 			p.buf.WriteByte('<')
 			inStr = true
 		}
-		fmt.Fprintf(&p.buf, "%04X", g.GID)
+		const hexd = "0123456789ABCDEF"
+		p.buf.Write([]byte{hexd[g.GID>>12&15], hexd[g.GID>>8&15], hexd[g.GID>>4&15], hexd[g.GID&15]})
 		if g.Extra != 0 {
 			p.buf.WriteByte('>')
 			inStr = false
-			fmt.Fprintf(&p.buf, "%s", p.n(-g.Extra*1000/size))
+			p.buf.Write(p.doc.appendNum(tmp[:0], -g.Extra*1000/size))
 		}
 	}
 	if inStr {
