@@ -107,3 +107,35 @@ func BenchmarkRender(b *testing.B) {
 		}
 	}
 }
+
+// TestConcurrentRender renders in parallel (run with -race): shared caches must be safe.
+func TestConcurrentRender(t *testing.T) {
+	data, err := os.ReadFile("testdata/mix.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan []byte, 6)
+	for i := 0; i < 6; i++ {
+		go func() {
+			doc, err := xmldom.ParseBytes(data)
+			if err != nil {
+				done <- nil
+				return
+			}
+			out, _ := Render(doc, Options{})
+			done <- out
+		}()
+	}
+	var first []byte
+	for i := 0; i < 6; i++ {
+		out := <-done
+		if out == nil {
+			t.Fatal("render failed")
+		}
+		if first == nil {
+			first = out
+		} else if len(out) != len(first) {
+			t.Errorf("parallel renders differ in size: %d vs %d", len(out), len(first))
+		}
+	}
+}

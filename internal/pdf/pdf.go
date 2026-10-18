@@ -464,8 +464,7 @@ func pdfString(s string) string {
 		}
 	}
 	if ascii {
-		r := strings.NewReplacer(`\`, `\\`, `(`, `\(`, `)`, `\)`)
-		return "(" + r.Replace(s) + ")"
+		return "(" + pdfStringEscaper.Replace(s) + ")"
 	}
 	u := utf16.Encode([]rune(s))
 	var sb strings.Builder
@@ -734,7 +733,7 @@ func (d *Document) writeFont(w *writer, f *Font, idx int) int {
 	sort.Slice(gids, func(i, j int) bool { return gids[i] < gids[j] })
 	sub := ft.Subset(gids)
 	tag := subsetTag(idx, ft.PSName+ft.Family)
-	psname := strings.NewReplacer(" ", "", "(", "", ")", "").Replace(ft.PSName)
+	psname := psNameCleaner.Replace(ft.PSName)
 	if psname == "" {
 		psname = strings.ReplaceAll(ft.Family+ft.SubFamily, " ", "")
 	}
@@ -830,3 +829,8 @@ func shadingDict(sh *Shading) string {
 	return fmt.Sprintf("<< /PatternType 2 /Matrix [%s] /Shading << /ShadingType %d /ColorSpace /DeviceRGB /Coords [%s] /Function %s /Extend [true true] >> >>",
 		strings.Join(m, " "), typ, strings.Join(cs, " "), fn)
 }
+
+var (
+	pdfStringEscaper = strings.NewReplacer(`\`, `\\`, `(`, `\(`, `)`, `\)`)
+	psNameCleaner    = strings.NewReplacer(" ", "", "(", "", ")", "")
+)

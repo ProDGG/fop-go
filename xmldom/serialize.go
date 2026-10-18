@@ -34,15 +34,14 @@ func (s *serializer) write(str string) {
 	}
 }
 
-func escapeText(s string) string {
-	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
-	return r.Replace(s)
-}
+var (
+	textEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+	attrEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "\n", "&#10;", "\r", "&#13;", "\t", "&#9;")
+)
 
-func escapeAttr(s string) string {
-	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "\n", "&#10;", "\r", "&#13;", "\t", "&#9;")
-	return r.Replace(s)
-}
+func escapeText(s string) string { return textEscaper.Replace(s) }
+
+func escapeAttr(s string) string { return attrEscaper.Replace(s) }
 
 func (s *serializer) node(n *Node, scope map[string]string, depth int) {
 	switch n.Type {
