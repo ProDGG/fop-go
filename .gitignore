@@ -1,3 +1,4 @@
 *.pdf
 /fop-go
-__pycache__/
+*.test
+*.out

@@ -1,16 +1,38 @@
+<p align="center">
+  <img src="docs/banner.svg" alt="fop-go — XML + XSLT → PDF на чистом Go" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/ProDGG/fop-go/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ProDGG/fop-go/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://pkg.go.dev/github.com/ProDGG/fop-go"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/ProDGG/fop-go.svg"></a>
+  <img alt="Go 1.24+" src="https://img.shields.io/badge/go-1.24%2B-00ADD8?logo=go&logoColor=white">
+  <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen">
+  <img alt="no cgo, no Java" src="https://img.shields.io/badge/cgo-no-lightgrey"> <img alt="no Java" src="https://img.shields.io/badge/Java-no-lightgrey">
+</p>
+
 # fop-go
 
-Реализация конвейера **Apache FOP на чистом Go**: `XML + XSLT → XSL-FO → PDF`.
-Без внешних зависимостей (только стандартная библиотека), без cgo, без Java.
+**Apache FOP и Flying Saucer на чистом Go**: `XML + XSLT → XSL-FO / HTML → PDF`. Одна библиотека и один
+бинарник вместо JVM: без Java, без cgo, без внешних зависимостей (только стандартная библиотека).
+
+| | |
+|---|---|
+| **Два движка** | XSL-FO по конвейеру Apache FOP и HTML/CSS по конвейеру Flying Saucer 9.1.22 + iText 5 — выбирается автоматически по результату XSLT |
+| **Совпадение с оригиналом** | вёрстка проверяется против настоящих FOP и Flying Saucer: позиции текста, базовые линии, разбиение на страницы, растр страниц |
+| **Всё своё** | XML DOM, XPath 1.0, XSLT 1.0, разбор и подмножества TrueType, вёрстка, PDF-писатель |
+| **Быстро** | отчёт на 67 страниц (XML + XSLT → PDF) около 0,4 с, потокобезопасно |
+| **Кириллица из коробки** | встроены метрически-совместимые шрифты Liberation, текст в PDF копируется и ищется |
 
 ```
 data.xml ──┐
            ├─ XSLT 1.0 ─▶ XSL-FO ─▶ вёрстка ─▶ PDF
-template.xsl ┘
+template.xsl ┘            └─ HTML ─▶ CSS-вёрстка ─▶ PDF
 ```
 
-Внутри всё написано с нуля: XML DOM, XPath 1.0, XSLT-процессор, разбор TrueType-шрифтов
-с подмножеством для встраивания, движок вёрстки XSL-FO и PDF-писатель.
+```
+go install github.com/ProDGG/fop-go/cmd/fop-go@latest
+fop-go -xml data.xml -xsl template.xsl -pdf out.pdf
+```
 
 ## Быстрый старт
 
