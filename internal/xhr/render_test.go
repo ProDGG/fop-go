@@ -89,3 +89,21 @@ func TestAgainstFlyingSaucer(t *testing.T) {
 		})
 	}
 }
+
+// BenchmarkRender measures a multi-page synthetic document (table + positioned boxes).
+func BenchmarkRender(b *testing.B) {
+	data, err := os.ReadFile("testdata/abs2.html")
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		doc, err := xmldom.ParseBytes(data)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := Render(doc, Options{}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
