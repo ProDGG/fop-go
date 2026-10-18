@@ -353,6 +353,65 @@ iText), разбор встроенных шрифтов один раз на п
 для сравнения двух PDF по словам, строкам, базовым линиям, позициям текста и пикселям. Таблицы
 свойств `internal/fo/props_gen.go` пересоздаются командой `FOP_SRC=/path/to/xmlgraphics-fop go generate ./internal/fo`.
 
+## Сверка с Java-эталонами
+
+Эталоны запускаются на Java, сравнение идёт на Go. Нужны `pdftotext` и `pdftoppm` (пакет `poppler-utils`;
+`apt install poppler-utils` / `brew install poppler`) и JDK 17+.
+
+### XSL-FO ↔ Apache FOP
+
+```sh
+# 1. скачайте бинарный дистрибутив Apache FOP 2.x (xmlgraphics.apache.org/fop/download.html) и распакуйте
+export FOPLIBS=/путь/к/fop-2.x/fop/lib        # папка с jar-файлами; build/fop*.jar положите рядом
+export FOPCONF=/путь/к/fop.xconf              # необязательно: конфиг шрифтов FOP
+# 2. из корня репозитория
+go run ./tools/fidelity                       # все testdata/fidelity/*.fo
+go run ./tools/fidelity my.fo                 # один файл
+```
+
+Для каждого файла в `$OUT` (по умолчанию `/tmp/fidelity`) появятся `имя.pdf` (fop-go) и `имя.ref.pdf` (FOP),
+а в консоль — доля совпавших слов и строк. Чтобы сравнение имело смысл, у обоих должны быть одни и те же шрифты
+(базовые Helvetica/Times или тот же TTF через `fop.xconf` и `-font`).
+
+### HTML-отчёты ↔ Flying Saucer + iText (`java-service`)
+
+```sh
+# 1. соберите и запустите Java-сервис (JDK 17+, Maven)
+cd java-service && mvn -B package
+TEMPLATES_DIR=/путь/к/templates FONTS_DIR=/путь/к/fonts PORT=8080 \
+  java -Djava.awt.headless=true -jar target/report-service.jar &
+cd ..
+
+# 2. один и тот же XML и шаблон через оба движка
+curl -X POST 'localhost:8080/pdf?template=IndividualAdvancedReport.xslt&root=Root' \
+     --data-binary @report.xml -o java.pdf
+go run ./cmd/fop-go -xml report.xml -xmlroot Root \
+     -xsl /путь/к/templates/IndividualAdvancedReport.xslt -pdf go.pdf
+
+# 3. сравнение
+go run ./tools/pdfcmp words     go.pdf java.pdf          # позиции слов, допуск в pt третьим аргументом
+go run ./tools/pdfcmp texts     go.pdf java.pdf          # позиции текстовых операций в порядке рисования
+go run ./tools/pdfcmp lines     go.pdf java.pdf 1        # построчно, страница 1
+go run ./tools/pdfcmp baselines go.pdf java.pdf 1        # базовые линии страницы 1
+go run ./tools/pdfcmp img       go.pdf java.pdf 100      # растр, 100 dpi; 4-й аргумент — префикс для PNG с различиями
+```
+
+Чтобы две стороны были сопоставимы, нужно:
+
+* **Одни и те же шрифты.** Положите в `FONTS_DIR` и передайте Go (`-font "Arial=arial.ttf" -font "Arial=arialbd.ttf,bold"`)
+  одни и те же файлы. Без настоящего Arial Java возьмёт Liberation из `FONTS_DIR`, а Go — встроенный, и высота
+  строк у них может разойтись.
+* **Без flex в колонтитуле.** Стоковый Flying Saucer не знает `display: flex`, а Go-движок его эмулирует (так
+  устроен боевой шаблон). Для сравнения замените в копии шаблона `display: flex` на `display: block`.
+* **SVG.** Java-сервис растеризует SVG через Batik, Go — собственным растеризатором; логотип может отличаться на
+  пиксель-другой.
+* **Порядок отрисовки.** `texts` чувствителен к порядку: несколько операций колонтитула могут идти в другой
+  последовательности, не меняя картинку. Если `texts` расходится, смотрите `words` и `img`.
+
+`curl … &format=html` на Java-сервисе возвращает HTML, который получает рендерер, а `fop-go … -foout out.html` —
+HTML на Go-стороне: если их результаты расходятся, проблема в XSLT, а не в вёрстке. Подробности сервиса —
+[`java-service/README.md`](java-service/README.md).
+
 ## Структура
 
 | Пакет | Назначение |
