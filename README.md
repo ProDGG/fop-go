@@ -63,33 +63,99 @@ foTree, err := fop.Transform(xmlReader, xslReader, fop.Options{})
 err = fop.RenderFO(foReader, pdfWriter, fop.Options{})
 ```
 
-Шаблоны можно держать внутри бинарника или в любой другой `fs.FS` (`embed.FS`, `fstest.MapFS`, `os.DirFS`);
-XML при этом приходит из `io.Reader`. Шаблоны компилируются при первом обращении и кэшируются,
-`Templates` безопасен для параллельных вызовов; `xsl:import`/`xsl:include`/`document()` и пути картинок
-разрешаются внутри той же `fs.FS`:
-
-```go
-//go:embed templates
-var tpl embed.FS
-
-var reports = fop.NewTemplates(tpl, fop.Options{SourceRoot: "Root"}) // один раз на процесс
-
-func handler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/pdf")
-	if err := reports.Render("templates/IndividualAdvancedReport.xslt", r.Body, w); err != nil {
-		// ...
-	}
-}
-```
-
-`reports.WithParams(map[string]string{...})` передаёт `xsl:param`, `reports.Compile(имена...)` проверяет
-шаблоны при старте, `fop.RenderFS(fsys, имя, xml, w, opts)` — разовый вызов.
-
 Параметры `Options`: `BaseDir` (для относительных путей картинок), `XSLBase` (для
 `xsl:include`/`xsl:import`/`document()`), `Params` (xsl:param), `Fonts`/`FontDirs`
 (дополнительные TTF), метаданные (`Title`, `Author`, …), `NoCompress`, `SourceResolution`
 (dpi для `px`), `AllowRemote` (http(s)-картинки), `MaxPages` (лимит страниц, по умолчанию
 100 000; при превышении — `fop.ErrPageLimit`), `Warn`.
+
+## Шаблоны из `fs.FS` (embed)
+
+Шаблоны можно вшить в бинарник (`embed.FS`) или читать из любой другой `fs.FS` (`os.DirFS`, `fstest.MapFS`,
+архив). Шаблон читается из `fs.FS`, а XML приходит из `io.Reader` — удобно для HTTP-сервиса, у которого
+весь отчёт лежит в одном исполняемом файле.
+
+```
+templates/
+  IndividualAdvancedReport.xslt      ← <xsl:import href="PATH_TO_FILE/items/Header.xsl"/>
+  items/Header.xsl
+  images/logo.png                    ← <img src="images/logo.png"/>
+```
+
+```go
+import (
+    "bytes"
+    "embed"
+    "net/http"
+
+    fop "github.com/ProDGG/fop-go"
+)
+
+//go:embed templates
+var tpl embed.FS
+
+// создаётся один раз на процесс: шаблоны компилируются при первом обращении и кэшируются
+var reports = fop.NewTemplates(tpl, fop.Options{SourceRoot: "Root"})
+
+func init() {
+    // необязательно: ошибки в шаблонах — при старте, а не на первом запросе
+    if err := reports.Compile("templates/IndividualAdvancedReport.xslt"); err != nil {
+        panic(err)
+    }
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    var buf bytes.Buffer // сначала в буфер, чтобы при ошибке отдать 500, а не обрезанный PDF
+    if err := reports.Render("templates/IndividualAdvancedReport.xslt", r.Body, &buf); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    w.Header().Set("Content-Type", "application/pdf")
+    w.Write(buf.Bytes())
+}
+```
+
+| Вызов | Что делает |
+|---|---|
+| `fop.NewTemplates(fsys, opts)` | рендерер для шаблонов из `fsys`; `opts` действуют для всех вызовов (шрифты, `SourceRoot`, `Params`, `MaxPages`, …) |
+| `t.Render(имя, xml, w)` | XML из `io.Reader` → PDF в `io.Writer`; шаблон может выдавать и XSL-FO, и HTML |
+| `t.WithParams(map[string]string{…})` | копия с другими `xsl:param`; кэш шаблонов общий |
+| `t.Compile(имена…)` | компилирует и кэширует шаблоны заранее |
+| `fop.RenderFS(fsys, имя, xml, w, opts)` | разовый вызов без кэша |
+
+**Как разрешаются пути**
+
+* Имя шаблона — путь через `/` внутри `fs.FS` (`"templates/A.xslt"`, не `"./A.xslt"` и не путь ОС).
+* `xsl:import`, `xsl:include` и `document()` отсчитываются от каталога шаблона, который на них ссылается;
+  `PATH_TO_FILE` подменяется на `.`, как и в обычном режиме. Ссылка выше корня `fs.FS` (`../…`) — ошибка.
+* Картинки (`<img src>`, `fo:external-graphic`) ищутся сначала относительно каталога шаблона, затем от корня
+  `fs.FS`. `data:`-URI работают всегда; `http(s)` — только с `Options.AllowRemote`.
+* Шрифты в `fs.FS` не ищутся: подключайте их через `Options.Fonts`, хоть из того же `embed`:
+
+  ```go
+  //go:embed fonts/arial.ttf fonts/arialbd.ttf
+  var fonts embed.FS
+
+  arial, _ := fonts.ReadFile("fonts/arial.ttf")
+  arialBold, _ := fonts.ReadFile("fonts/arialbd.ttf")
+  opts := fop.Options{
+      SourceRoot: "Root",
+      Fonts: []fop.FontSpec{
+          {Family: "Arial", Data: arial},
+          {Family: "Arial", Data: arialBold, Weight: 700},
+      },
+  }
+  ```
+
+**Параллельность.** `Templates` безопасен для одновременных вызовов (проверено `go test -race`): скомпилированный
+шаблон только читается, а всё состояние рендера создаётся заново на каждый вызов.
+
+**Тесты без файлов.** Подставьте `fstest.MapFS` — шаблоны, XML и картинки прямо в коде теста:
+
+```go
+fsys := fstest.MapFS{"t.xsl": {Data: []byte(`<xsl:stylesheet …>…</xsl:stylesheet>`)}}
+err := fop.RenderFS(fsys, "t.xsl", strings.NewReader(`<r/>`), io.Discard, fop.Options{})
+```
 
 ## Шрифты и кириллица
 
