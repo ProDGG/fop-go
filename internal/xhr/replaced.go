@@ -52,6 +52,8 @@ func (i *Image) scale(width, height int) {
 type SVGImage struct {
 	W, H float64 // intrinsic size in CSS pixels
 	Draw func(p *pdf.Page, x, y, w, h float64)
+	// Raster, when set, is used instead of the vector drawing.
+	Raster image.Image
 }
 
 // SVGLoader parses SVG data; installed by the package that owns the SVG renderer.
@@ -152,6 +154,9 @@ func decodeImage(data []byte) (*Image, error) {
 		s, err := SVGLoader(data)
 		if err != nil {
 			return nil, err
+		}
+		if s.Raster != nil {
+			return fromImage(s.Raster)
 		}
 		w := int(s.W * 20)
 		h := int(s.H * 20)

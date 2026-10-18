@@ -199,6 +199,9 @@ func (p *Page) op(format string, args ...interface{}) {
 	p.buf.WriteByte('\n')
 }
 
+// Content returns the content stream written so far.
+func (p *Page) Content() []byte { return p.buf.Bytes() }
+
 // Save pushes the graphics state.
 func (p *Page) Save() { p.buf.WriteString("q\n") }
 
