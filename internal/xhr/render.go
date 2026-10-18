@@ -2,6 +2,7 @@ package xhr
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -22,6 +23,9 @@ type Options struct {
 	Title, Author string
 	// Debug dumps the box tree to the given writer when set.
 	Dump *strings.Builder
+	// MaxPages stops layout with pdf.ErrPageLimit once the document needs
+	// more pages (0 = unlimited).
+	MaxPages int
 }
 
 // FontData is a font file to register.
@@ -38,6 +42,10 @@ func Render(doc *xmldom.Node, opts Options) ([]byte, error) {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
+				if e, ok := r.(error); ok && errors.Is(e, pdf.ErrPageLimit) {
+					rerr = e
+					return
+				}
 				rerr = fmt.Errorf("xhr: %v", r)
 				if os.Getenv("XHR_DEBUG") != "" {
 					rerr = fmt.Errorf("xhr: %v\n%s", r, debug.Stack())
@@ -76,6 +84,7 @@ func render(docNode *xmldom.Node, opts Options) ([]byte, error) {
 	})
 	d := NewDoc(ctx, m, root, NewImageCache(opts.ResolveResource))
 	lc := newLayoutContext(d)
+	lc.maxPages = opts.MaxPages
 
 	rootBox := d.createRootBox(lc)
 	first := createPageBox(lc, "first")

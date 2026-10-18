@@ -125,3 +125,14 @@ func TestNumFormatsMatchReference(t *testing.T) {
 		t.Errorf("%d Num mismatches", bad)
 	}
 }
+
+func TestNumNonFinite(t *testing.T) {
+	for _, f := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if s := Num(f); s != "0" {
+			t.Errorf("Num(%v) = %q", f, s)
+		}
+		if s := itextNum(f); s != "0" {
+			t.Errorf("itextNum(%v) = %q", f, s)
+		}
+	}
+}

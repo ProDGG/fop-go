@@ -1,7 +1,10 @@
 package xhr
 
 import (
+	"fmt"
 	"sort"
+
+	"github.com/ProDGG/fop-go/internal/pdf"
 )
 
 // BlockFormattingContext tracks translation for float placement.
@@ -38,6 +41,7 @@ type LayoutContext struct {
 	page                 *PageBox
 	mayCheckKeepTogether bool
 	breakAtLine          *breakAtLineContext
+	maxPages             int // 0 = unlimited
 }
 
 type breakAtLineContext struct {
@@ -156,6 +160,9 @@ func (l *Layer) removeFloat(b *Box) {
 func (l *Layer) addPageSequence(b *Box) { l.pageSeqs = append(l.pageSeqs, b) }
 
 func (l *Layer) addPage(lc *LayoutContext) {
+	if lc.maxPages > 0 && len(l.pages) >= lc.maxPages {
+		panic(fmt.Errorf("%w: more than %d pages", pdf.ErrPageLimit, lc.maxPages))
+	}
 	var pseudo string
 	switch {
 	case len(l.pages) == 0:

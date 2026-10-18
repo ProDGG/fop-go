@@ -26,6 +26,9 @@ type Options struct {
 	AllowRemote bool
 	// NoKerning disables pair kerning (FOP applies it by default).
 	NoKerning bool
+	// MaxPages stops rendering with pdf.ErrPageLimit once the document needs
+	// more pages (0 = unlimited).
+	MaxPages int
 }
 
 // Engine holds state shared by all pages of one rendering run.

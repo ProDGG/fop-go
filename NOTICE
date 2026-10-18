@@ -1,0 +1,40 @@
+fop-go
+Copyright 2026 the fop-go authors
+
+fop-go is free software: you can redistribute it and/or modify it under the
+terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See LICENSE (LGPL-3.0) and COPYING (GPL-3.0, which the LGPL
+extends).
+
+This product contains work derived from the following projects:
+
+* Apache FOP (https://xmlgraphics.apache.org/fop/), Apache License 2.0.
+  internal/fo ports parts of FOP's layout (line and page breaking, property
+  handling). Apache FOP's own notice:
+
+      Apache FOP
+      Copyright 1999-2025 The Apache Software Foundation
+
+      This product includes software developed at
+      The Apache Software Foundation (http://www.apache.org/).
+
+* Flying Saucer (https://github.com/flyingsaucerproject/flyingsaucer),
+  GNU LGPL 2.1 or later. internal/xhr ports its layout and rendering, and
+  internal/xhr/ua.css is derived from its default user agent style sheet.
+
+* OpenJDK (https://openjdk.org/), GPL 2.0 with the Classpath Exception.
+  internal/xhr/linebreak.bin holds the line break state tables of
+  java.text.BreakIterator, extracted so that text wraps exactly as on the JVM.
+
+* Adobe Core 14 AFM font metrics (as distributed with iText 5): glyph widths
+  and metrics in internal/xhr/base14_gen.go. Adobe permits use, copying and
+  distribution of these metric files for any purpose.
+
+* Liberation Fonts (https://github.com/liberationfonts), SIL Open Font
+  License 1.1: the fonts in internal/font/data, see
+  internal/font/data/LICENSE-Liberation.txt.
+
+The PDF output emulates the conventions of iText 5 (number formatting,
+clipping and fill geometry) for byte-level compatibility; no iText source
+code is included.

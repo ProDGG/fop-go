@@ -112,12 +112,21 @@ func sameIDs(a, b map[string]idInfo) bool {
 	return true
 }
 
-func (e *Engine) renderOnce(root *Node) (*pdf.Document, error) {
+func (e *Engine) renderOnce(root *Node) (doc *pdf.Document, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			pl, ok := r.(pageLimit)
+			if !ok {
+				panic(r)
+			}
+			doc, err = nil, pl.err
+		}
+	}()
 	masters, seqs, err := e.parseMasters(root)
 	if err != nil {
 		return nil, err
 	}
-	doc := pdf.NewDocument()
+	doc = pdf.NewDocument()
 	doc.Compress = e.opts.Compress
 	var links []pendingLink
 	endPrev := 0 // ending page number of the previous sequence (FOP: Root.endingPageNumberOfPreviousSequence)
@@ -531,6 +540,9 @@ func (s *seqRun) fill(pm *pageMaster, queue []qEntry, pnum int) (placed []placed
 
 func (s *seqRun) renderPage(pm *pageMaster, placed []placedItem, pnum int, first bool) {
 	e := s.e
+	if e.opts.MaxPages > 0 && len(s.doc.Pages) >= e.opts.MaxPages {
+		panic(pageLimit{fmt.Errorf("%w: more than %d pages", pdf.ErrPageLimit, e.opts.MaxPages)})
+	}
 	pg := s.doc.NewPage(pm.w, pm.h)
 	pageIdx := len(s.doc.Pages) - 1
 	rc := &renderCtx{e: e, doc: s.doc, pg: pg, pageIdx: pageIdx, pageNum: fmtPage(pnum, s.pageFmt),
@@ -678,3 +690,6 @@ func (s *seqRun) footnoteCtx(colW float64, pnum int) *fnCtx {
 	}
 	return ctx
 }
+
+// pageLimit carries ErrPageLimit out of the page loop.
+type pageLimit struct{ err error }

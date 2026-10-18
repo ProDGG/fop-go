@@ -19,6 +19,7 @@ import (
 
 	"github.com/ProDGG/fop-go/internal/fo"
 	"github.com/ProDGG/fop-go/internal/font"
+	"github.com/ProDGG/fop-go/internal/pdf"
 	"github.com/ProDGG/fop-go/internal/xhr"
 	"github.com/ProDGG/fop-go/xmldom"
 	"github.com/ProDGG/fop-go/xslt"
@@ -64,9 +65,29 @@ type Options struct {
 	SourceResolution float64
 	// AllowRemote permits http(s) image URLs.
 	AllowRemote bool
+	// MaxPages aborts rendering with ErrPageLimit when the document needs more
+	// pages: a guard against runaway layouts (e.g. a huge font size coming
+	// from the data). 0 means DefaultMaxPages, a negative value no limit.
+	MaxPages int
 	// Warn receives non-fatal problems (missing fonts/images, unsupported
 	// objects, xsl:message output). nil discards them.
 	Warn func(string)
+}
+
+// DefaultMaxPages is the page limit used when Options.MaxPages is 0.
+const DefaultMaxPages = 100000
+
+// ErrPageLimit is returned (wrapped) when a document exceeds Options.MaxPages.
+var ErrPageLimit = pdf.ErrPageLimit
+
+func (o Options) maxPages() int {
+	switch {
+	case o.MaxPages == 0:
+		return DefaultMaxPages
+	case o.MaxPages < 0:
+		return 0
+	}
+	return o.MaxPages
 }
 
 func (o Options) fontManager() (*font.Manager, error) {
@@ -212,7 +233,7 @@ func RenderFODocument(doc *xmldom.Node, w io.Writer, opts Options) error {
 	pdfDoc, err := fo.Render(tree, fo.Options{
 		BaseDir: opts.BaseDir, Fonts: fm, Warn: opts.Warn, PxPerPt: pxPt, Compress: !opts.NoCompress,
 		Title: opts.Title, Author: opts.Author, Subject: opts.Subject, Keywords: opts.Keywords,
-		Creator: opts.Creator, Producer: opts.Producer, AllowRemote: opts.AllowRemote,
+		Creator: opts.Creator, Producer: opts.Producer, AllowRemote: opts.AllowRemote, MaxPages: opts.maxPages(),
 	})
 	if err != nil {
 		return err
@@ -334,7 +355,7 @@ func renderHTMLDocument(doc *xmldom.Node, w io.Writer, opts Options) error {
 		base = "."
 	}
 	xo := xhr.Options{
-		Title: opts.Title, Author: opts.Author,
+		Title: opts.Title, Author: opts.Author, MaxPages: opts.maxPages(),
 		ResolveResource: func(uri string) ([]byte, error) {
 			if strings.HasPrefix(uri, "file:") {
 				uri = strings.TrimPrefix(strings.TrimPrefix(uri, "file://"), "file:")

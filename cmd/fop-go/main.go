@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	fop "github.com/ProDGG/fop-go"
@@ -38,6 +39,8 @@ func main() {
 		remote   = flag.Bool("remote", false, "allow loading http(s) images")
 		xmlRoot  = flag.String("xmlroot", "", "use the first element with this name as the document element of the XML input")
 		quiet    = flag.Bool("q", false, "suppress warnings")
+		maxPages = flag.Int("maxpages", 0, "abort when the document needs more pages (0 = default 100000, -1 = no limit)")
+		showVer  = flag.Bool("version", false, "print the version and exit")
 		params   multi
 		fonts    multi
 		fontDirs multi
@@ -50,10 +53,14 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *showVer {
+		fmt.Println("fop-go", buildVersion())
+		return
+	}
 
 	opts := fop.Options{
 		BaseDir: *baseDir, Title: *title, Author: *author, NoCompress: *noComp, NoSystemFonts: *noSys,
-		SourceResolution: *dpi, AllowRemote: *remote, FontDirs: fontDirs, SourceRoot: *xmlRoot,
+		SourceResolution: *dpi, AllowRemote: *remote, FontDirs: fontDirs, SourceRoot: *xmlRoot, MaxPages: *maxPages,
 	}
 	if !*quiet {
 		opts.Warn = func(s string) { fmt.Fprintln(os.Stderr, "warning:", s) }
@@ -134,4 +141,42 @@ func renderDoc(doc *xmldom.Node, pdfPath string, opts fop.Options) error {
 func fatal(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "fop-go: "+format+"\n", args...)
 	os.Exit(1)
+}
+
+// version can be set at build time: -ldflags "-X main.version=v1.2.3".
+var version = ""
+
+// buildVersion reports the module version (set by go install pkg@version) or,
+// for a local build, the VCS revision.
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	v := bi.Main.Version
+	if v != "" && v != "(devel)" {
+		return v
+	}
+	rev, dirty := "", false
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if rev == "" {
+		return "devel"
+	}
+	if len(rev) > 12 {
+		rev = rev[:12]
+	}
+	if dirty {
+		rev += "-dirty"
+	}
+	return "devel " + rev
 }

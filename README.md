@@ -6,6 +6,7 @@
   <a href="https://github.com/ProDGG/fop-go/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ProDGG/fop-go/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://pkg.go.dev/github.com/ProDGG/fop-go"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/ProDGG/fop-go.svg"></a>
   <img alt="Go 1.24+" src="https://img.shields.io/badge/go-1.24%2B-00ADD8?logo=go&logoColor=white">
+  <a href="LICENSE"><img alt="License: LGPL-3.0-or-later" src="https://img.shields.io/badge/license-LGPL--3.0--or--later-blue"></a>
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen">
   <img alt="no cgo, no Java" src="https://img.shields.io/badge/cgo-no-lightgrey"> <img alt="no Java" src="https://img.shields.io/badge/Java-no-lightgrey">
 </p>
@@ -65,7 +66,8 @@ err = fop.RenderFO(foReader, pdfWriter, fop.Options{})
 Параметры `Options`: `BaseDir` (для относительных путей картинок), `XSLBase` (для
 `xsl:include`/`xsl:import`/`document()`), `Params` (xsl:param), `Fonts`/`FontDirs`
 (дополнительные TTF), метаданные (`Title`, `Author`, …), `NoCompress`, `SourceResolution`
-(dpi для `px`), `AllowRemote` (http(s)-картинки), `Warn`.
+(dpi для `px`), `AllowRemote` (http(s)-картинки), `MaxPages` (лимит страниц, по умолчанию
+100 000; при превышении — `fop.ErrPageLimit`), `Warn`.
 
 ## Шрифты и кириллица
 
@@ -146,6 +148,8 @@ SVG, минимальный однострочный `display:flex` (шапка 
 
 **Опции:** `-xmlroot Root` (`Options.SourceRoot`) делает `Root` корнем входного XML (шаблоны обращаются
 к `/Root/...`); `PATH_TO_FILE` в `xsl:import` заменяется на каталог шаблона (`Options.PathPlaceholder`).
+`-maxpages N` (`Options.MaxPages`) прерывает вёрстку, если документу нужно больше N страниц —
+защита от «разбухания» (например, гигантский размер шрифта из данных); `-version` печатает версию.
 
 **Проверка:** тесты `internal/xhr` сравнивают позиции текста с выводом настоящего Flying Saucer на
 синтетических фикстурах (`internal/xhr/testdata`, эталоны получены на оригинальной реализации).
@@ -279,7 +283,21 @@ iText), разбор встроенных шрифтов один раз на п
 Примеры: `examples/invoice` (XML+XSLT → счёт) и `examples/features` (многостраничный FO:
 оглавление с лидерами, таблица на несколько страниц, колонки, изображения, маркеры).
 
-## Лицензии
+## Лицензия
+
+fop-go распространяется по **GNU LGPL 3.0 или более поздней версии** (`LICENSE`, `COPYING`).
+Такая лицензия выбрана потому, что HTML-движок — перенос Flying Saucer (LGPL 2.1+), а FO-движок
+перенимает части Apache FOP (Apache 2.0); LGPL 3.0 совместима с обеими. Происхождение
+заимствованных частей — в `NOTICE`.
+
+Что это значит на практике:
+
+* использовать библиотеку и CLI в своих сервисах (в том числе закрытых и коммерческих) можно
+  без ограничений — пока вы не распространяете программу, никаких обязательств нет;
+* изменения самой fop-go при распространении нужно публиковать под той же лицензией;
+* при распространении закрытой программы со встроенной fop-go получатель должен иметь
+  возможность пересобрать её с изменённой fop-go (для Go — передать исходники или объектные
+  файлы вашей части, либо вызывать `fop-go` как отдельный процесс).
 
 Встроенные шрифты Liberation распространяются по SIL Open Font License 1.1
 (см. `internal/font/data/LICENSE-Liberation.txt`).

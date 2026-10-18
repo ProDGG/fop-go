@@ -5,6 +5,7 @@ package pdf
 import (
 	"bytes"
 	"compress/zlib"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -17,6 +18,10 @@ import (
 
 	"github.com/ProDGG/fop-go/internal/font"
 )
+
+// ErrPageLimit is returned when a document needs more pages than the
+// configured limit (a guard against runaway layouts).
+var ErrPageLimit = errors.New("page limit exceeded")
 
 // Info is the document information dictionary.
 type Info struct {
@@ -136,7 +141,11 @@ func Num(f float64) string { return string(appendNum(make([]byte, 0, 16), f)) }
 // appendNum is the allocation-free core of Num. It rounds f*1000 to the nearest
 // integer instead of going through strconv's slow exact path.
 func appendNum(b []byte, f float64) []byte {
-	if math.IsNaN(f) || math.IsInf(f, 0) || math.Abs(f) >= 1e12 {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		// not representable in PDF; keep the content stream valid
+		return append(b, '0')
+	}
+	if math.Abs(f) >= 1e12 {
 		return strconv.AppendFloat(b, f, 'f', -1, 64)
 	}
 	neg := f < 0
@@ -180,7 +189,7 @@ func (p *Page) n(f float64) string { return p.doc.num(f) }
 func itextNum(d float64) string { return string(appendITextNum(make([]byte, 0, 16), d)) }
 
 func appendITextNum(b []byte, d float64) []byte {
-	if math.Abs(d) < 0.000015 {
+	if math.Abs(d) < 0.000015 || math.IsNaN(d) || math.IsInf(d, 0) {
 		return append(b, '0')
 	}
 	if d < 0 {

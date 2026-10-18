@@ -2,6 +2,7 @@ package fop
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -248,5 +249,34 @@ func TestHTMLReportPipeline(t *testing.T) {
 	}
 	if n := pageCount(data); n < 2 {
 		t.Errorf("expected the table to span several pages, got %d", n)
+	}
+}
+
+func TestMaxPages(t *testing.T) {
+	body := strings.Repeat(`<fo:block break-after="page">x</fo:block>`, 5)
+	o := opts()
+	o.MaxPages = 3
+	var buf bytes.Buffer
+	if err := RenderFO(strings.NewReader(foHead+body+foTail), &buf, o); !errors.Is(err, ErrPageLimit) {
+		t.Fatalf("FO: got %v, want ErrPageLimit", err)
+	}
+	o.MaxPages = 5
+	if err := RenderFO(strings.NewReader(foHead+body+foTail), &buf, o); err != nil {
+		t.Fatalf("FO within limit: %v", err)
+	}
+
+	// a glyph taller than the page makes the HTML engine add pages for it
+	xsl := `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:template match="/"><html><head><style>@page{size:A4} div{font-size:20000px}</style></head><body><div>x</div></body></html></xsl:template>
+</xsl:stylesheet>`
+	o.MaxPages = 5
+	buf.Reset()
+	if err := Render(strings.NewReader(`<r/>`), strings.NewReader(xsl), &buf, o); !errors.Is(err, ErrPageLimit) {
+		t.Fatalf("HTML: got %v, want ErrPageLimit", err)
+	}
+	o.MaxPages = -1
+	buf.Reset()
+	if err := Render(strings.NewReader(`<r/>`), strings.NewReader(xsl), &buf, o); err != nil {
+		t.Fatalf("HTML without limit: %v", err)
 	}
 }
