@@ -3,6 +3,7 @@ package xhr
 import (
 	"math"
 	"strings"
+	"sync"
 )
 
 // Ctx holds the unit conversion constants shared by all styles (Flying
@@ -137,10 +138,16 @@ func (s *Style) checkAllowed() {
 	}
 }
 
-var initialCache = map[string]*dv{}
+var (
+	initialCache   = map[string]*dv{}
+	initialCacheMu sync.RWMutex
+)
 
 func initialValue(name string) *dv {
-	if d, ok := initialCache[name]; ok {
+	initialCacheMu.RLock()
+	d, ok := initialCache[name]
+	initialCacheMu.RUnlock()
+	if ok {
 		return d
 	}
 	info, ok := propTable[name]
@@ -150,11 +157,13 @@ func initialValue(name string) *dv {
 	l := &cssLexer{s: []rune(info.def)}
 	vals, _, _ := l.parseValue()
 	r, ok := buildSimple(name, vals, false)
-	d := &dv{vals: r.Vals}
+	d = &dv{vals: r.Vals}
 	if !ok {
 		d = &dv{vals: vals}
 	}
+	initialCacheMu.Lock()
 	initialCache[name] = d
+	initialCacheMu.Unlock()
 	return d
 }
 

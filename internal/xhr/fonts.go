@@ -231,7 +231,22 @@ type FontEngine struct {
 // under the PDF base-14 family names, plus "Arial" (Liberation Sans carrying
 // Arial's vertical metrics).
 func NewFontEngine() *FontEngine {
-	fe := &FontEngine{families: map[string]*FontFamily{}, cache: map[string]*FontDesc{}}
+	baseOnce.Do(func() { baseFamilies = buildBaseFamilies() })
+	fe := &FontEngine{families: make(map[string]*FontFamily, len(baseFamilies)+4), cache: map[string]*FontDesc{}}
+	for k, v := range baseFamilies {
+		fe.families[k] = v
+	}
+	return fe
+}
+
+var (
+	baseOnce     sync.Once
+	baseFamilies map[string]*FontFamily
+)
+
+// buildBaseFamilies parses the bundled fonts once; engines share the (read-only) families.
+func buildBaseFamilies() map[string]*FontFamily {
+	fe := &FontEngine{families: map[string]*FontFamily{}}
 	fm := font.NewManager()
 	type member struct {
 		w  int
@@ -292,7 +307,7 @@ func NewFontEngine() *FontEngine {
 			fe.families[n] = fam
 		}
 	}
-	return fe
+	return fe.families
 }
 
 // AddFont registers a TrueType font under family (replacing nothing; members

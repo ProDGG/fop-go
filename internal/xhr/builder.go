@@ -24,15 +24,16 @@ type childBoxInfo struct {
 
 // Doc is the shared context of one document (SharedContext + StyleReference).
 type Doc struct {
-	ctx     *Ctx
-	matcher *Matcher
-	root    *xmldom.Node
-	empty   *Style
-	styles  map[*xmldom.Node]*Style
-	boxIDs  map[string]*Box
-	counter map[*Style]*counterContext
-	lc      *LayoutContext
-	images  *ImageCache
+	ctx        *Ctx
+	matcher    *Matcher
+	root       *xmldom.Node
+	empty      *Style
+	styles     map[*xmldom.Node]*Style
+	boxIDs     map[string]*Box
+	styleCache map[styleKey]*Style
+	counter    map[*Style]*counterContext
+	lc         *LayoutContext
+	images     *ImageCache
 
 	mainLayer *Layer
 }
@@ -41,7 +42,7 @@ type Doc struct {
 func NewDoc(ctx *Ctx, m *Matcher, root *xmldom.Node, imgs *ImageCache) *Doc {
 	return &Doc{
 		ctx: ctx, matcher: m, root: root, empty: NewEmptyStyle(ctx),
-		styles: map[*xmldom.Node]*Style{}, boxIDs: map[string]*Box{},
+		styles: map[*xmldom.Node]*Style{}, boxIDs: map[string]*Box{}, styleCache: map[styleKey]*Style{},
 		counter: map[*Style]*counterContext{}, images: imgs,
 	}
 }
@@ -55,6 +56,11 @@ func parentElem(e *xmldom.Node) *xmldom.Node {
 	return nil
 }
 
+type styleKey struct {
+	parent *Style
+	sig    string
+}
+
 func (d *Doc) style(e *xmldom.Node) *Style {
 	if s, ok := d.styles[e]; ok {
 		return s
@@ -65,10 +71,27 @@ func (d *Doc) style(e *xmldom.Node) *Style {
 	} else {
 		ps = d.empty
 	}
-	nonCSS := ParseStyleAttr(nonCSSStyling(e))
-	styleAttr := ParseStyleAttr(elementStyling(e))
-	casc := d.matcher.Cascaded(e, "", nonCSS, styleAttr)
+	// elements with the same parent style, matching rules and own declarations
+	// share one Style (and its computed-value cache)
+	nonCSSText, styleText := nonCSSStyling(e), elementStyling(e)
+	ents := d.matcher.matching(e, "")
+	var sig strings.Builder
+	for _, en := range ents {
+		sig.WriteString(strconv.Itoa(en.pos))
+		sig.WriteByte(',')
+	}
+	sig.WriteByte('|')
+	sig.WriteString(nonCSSText)
+	sig.WriteByte('|')
+	sig.WriteString(styleText)
+	key := styleKey{ps, sig.String()}
+	if s, ok := d.styleCache[key]; ok {
+		d.styles[e] = s
+		return s
+	}
+	casc := cascadeEntries(ents, "", ParseStyleAttr(nonCSSText), ParseStyleAttr(styleText))
 	s := ps.Derive(casc)
+	d.styleCache[key] = s
 	d.styles[e] = s
 	return s
 }

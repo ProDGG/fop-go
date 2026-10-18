@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf16"
 
@@ -426,13 +427,22 @@ func (w *writer) add(body []byte) int {
 	return n
 }
 
+// zlibPool reuses deflate state (a compressor allocates ~1MB). The default
+// level is what iText uses and is about twice as fast as BestCompression.
+var zlibPool = sync.Pool{New: func() interface{} {
+	w, _ := zlib.NewWriterLevel(io.Discard, zlib.DefaultCompression)
+	return w
+}}
+
 func (d *Document) stream(dict string, data []byte, forceCompress bool) []byte {
 	var out bytes.Buffer
 	if d.Compress || forceCompress {
 		var zb bytes.Buffer
-		zw, _ := zlib.NewWriterLevel(&zb, zlib.BestCompression)
+		zw := zlibPool.Get().(*zlib.Writer)
+		zw.Reset(&zb)
 		zw.Write(data)
 		zw.Close()
+		zlibPool.Put(zw)
 		if zb.Len() < len(data) || forceCompress {
 			data = zb.Bytes()
 			dict += " /Filter /FlateDecode"

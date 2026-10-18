@@ -244,6 +244,10 @@ func (p *painter) collect(layer *Layer, container *Box, col *collected) {
 			col.blocks = append(col.blocks, container)
 		}
 	}
+	// prune subtrees that end above the visible area
+	if container.parent != nil && container.subtreeBottom() < p.clip.Y && container.Kind != KTable {
+		return
+	}
 	// prune subtrees that start below the visible area
 	if container.absY >= p.clip.Y+p.clip.H && container.parent != nil && container.Kind != KTable {
 		// children never start above their parent
@@ -330,6 +334,7 @@ func (p *painter) positionFixedLayer(layer *Layer) {
 	vp.height = r.H
 	fixed.containingBlk = vp
 	fixed.positionAbsolute(posBoth)
+	fixed.resetBottom()
 }
 
 // paintLayer is Layer.paint.
@@ -1216,4 +1221,63 @@ func intersectRect(a, b Rect) Rect {
 		y1 = y0
 	}
 	return Rect{x0, y0, x1 - x0, y1 - y0}
+}
+
+// subtreeBottom returns the lowest painted y (document coordinates) of the box
+// and everything below it in the box tree; nothing in the subtree can intersect
+// a clip that lies entirely below this value.
+func (b *Box) subtreeBottom() int {
+	if b.bottomSet {
+		return b.bottomMemo
+	}
+	var m int
+	switch b.Kind {
+	case KLine:
+		m = b.absY + b.paintingTop + b.paintingHeight
+		if m < b.absY+b.height {
+			m = b.absY + b.height
+		}
+		for _, c := range b.children {
+			m = max(m, c.inlineBottom())
+		}
+	default:
+		m = b.absY + b.height
+		for _, c := range b.children {
+			m = max(m, c.subtreeBottom())
+		}
+		if b.persistentBFC != nil {
+			b.persistentBFC.performOnFloats(func(f *Box) { m = max(m, f.subtreeBottom()) })
+		}
+	}
+	// generous slack for decorations, outlines and rounding
+	m += 400
+	b.bottomSet, b.bottomMemo = true, m
+	return m
+}
+
+func (b *Box) inlineBottom() int {
+	m := b.absY + b.height
+	if b.Kind == KInline {
+		for _, o := range b.inlineChildren {
+			if c, ok := o.(*Box); ok {
+				m = max(m, c.inlineBottom())
+			}
+		}
+	} else {
+		m = max(m, b.subtreeBottom())
+	}
+	return m
+}
+
+// resetBottom drops the cached subtree extent (used when a layer is moved at paint time).
+func (b *Box) resetBottom() {
+	b.bottomSet = false
+	for _, c := range b.children {
+		c.resetBottom()
+	}
+	for _, o := range b.inlineChildren {
+		if c, ok := o.(*Box); ok {
+			c.resetBottom()
+		}
+	}
 }

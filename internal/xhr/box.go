@@ -149,7 +149,9 @@ type Box struct {
 	fromCaptionedTbl bool
 	openInlineBoxes  []*InlineSrc // AnonymousBlockBox
 	fixedRect        *Rect        // viewport / margin box pseudo containing block extent
-	isInitialCB      bool         // viewport / page area pseudo containing block
+	bottomSet        bool
+	bottomMemo       int
+	isInitialCB      bool // viewport / page area pseudo containing block
 	marginAreaRoot   bool
 
 	// TableBox

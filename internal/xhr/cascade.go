@@ -40,6 +40,12 @@ type Matcher struct {
 	pages   []*builtPage
 	pos     int
 	ppos    int
+
+	// index of entries by the subject's type name (indices ascend, so merging
+	// keeps the cascade order); entries without a type name are in anyTag
+	indexed bool
+	byTag   map[string][]int
+	anyTag  []int
 }
 
 func buildDecls(ds []Decl) []Declared {
@@ -143,20 +149,53 @@ func declsOf(rule []Declared, o origin) []tagged {
 	return out
 }
 
-// Cascaded returns the cascaded declarations of an element; pseudo is "" for
-// the element itself.
-func (m *Matcher) Cascaded(e *xmldom.Node, pseudo string, nonCSS, styleAttr []Declared) map[string]*Declared {
+func (m *Matcher) buildIndex() {
+	m.byTag = map[string][]int{}
+	m.anyTag = nil
+	for i, en := range m.entries {
+		tag := ""
+		if n := len(en.sel.parts); n > 0 {
+			tag = strings.ToLower(en.sel.parts[n-1].tag)
+		}
+		if tag == "" || tag == "*" {
+			m.anyTag = append(m.anyTag, i)
+		} else {
+			m.byTag[tag] = append(m.byTag[tag], i)
+		}
+	}
+	m.indexed = true
+}
+
+// matching returns the selector entries that apply to e for the pseudo element, in cascade order.
+func (m *Matcher) matching(e *xmldom.Node, pseudo string) []*selEntry {
+	if !m.indexed {
+		m.buildIndex()
+	}
+	a, b := m.byTag[strings.ToLower(e.Name)], m.anyTag
+	var res []*selEntry
+	for len(a) > 0 || len(b) > 0 {
+		var i int
+		if len(b) == 0 || (len(a) > 0 && a[0] < b[0]) {
+			i, a = a[0], a[1:]
+		} else {
+			i, b = b[0], b[1:]
+		}
+		en := m.entries[i]
+		if en.sel.Pseudo != pseudo || !en.sel.Matches(e) {
+			continue
+		}
+		res = append(res, en)
+	}
+	return res
+}
+
+// cascade merges the matched rules with the element's own declarations.
+func cascadeEntries(ents []*selEntry, pseudo string, nonCSS, styleAttr []Declared) map[string]*Declared {
 	var list []tagged
 	if pseudo == "" {
 		list = append(list, declsOf(nonCSS, originAuthor)...)
 	}
-	for _, en := range m.entries {
-		if en.sel.Pseudo != pseudo {
-			continue
-		}
-		if !en.sel.Matches(e) {
-			continue
-		}
+	for _, en := range ents {
 		list = append(list, declsOf(en.rule.decls, en.origin)...)
 	}
 	if pseudo == "" {
@@ -168,14 +207,15 @@ func (m *Matcher) Cascaded(e *xmldom.Node, pseudo string, nonCSS, styleAttr []De
 	return cascadeInto(list)
 }
 
+// Cascaded returns the cascaded declarations of an element; pseudo is "" for
+// the element itself.
+func (m *Matcher) Cascaded(e *xmldom.Node, pseudo string, nonCSS, styleAttr []Declared) map[string]*Declared {
+	return cascadeEntries(m.matching(e, pseudo), pseudo, nonCSS, styleAttr)
+}
+
 // HasPseudo reports whether any rule could apply to the pseudo element of e.
 func (m *Matcher) HasPseudo(e *xmldom.Node, pseudo string) bool {
-	for _, en := range m.entries {
-		if en.sel.Pseudo == pseudo && en.sel.Matches(e) {
-			return true
-		}
-	}
-	return false
+	return len(m.matching(e, pseudo)) > 0
 }
 
 // PageInfo is the cascaded @page information for a page.
